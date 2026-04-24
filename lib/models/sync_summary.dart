@@ -51,9 +51,11 @@ class SyncSummary {
   // === 按平台统计 ===
   final int xingzheSuccess;
   final int xingzheFailed;
+  final int xingzheDeduped;
   final List<FailedActivitySummary> xingzheFailures;
   final int stravaSuccess;
   final int stravaFailed;
+  final int stravaDeduped;
   final List<FailedActivitySummary> stravaFailures;
 
   /// 本次同步运行时间戳（用于 banner 记录）
@@ -68,9 +70,11 @@ class SyncSummary {
     this.failureReasons = const [],
     this.xingzheSuccess = 0,
     this.xingzheFailed = 0,
+    this.xingzheDeduped = 0,
     this.xingzheFailures = const [],
     this.stravaSuccess = 0,
     this.stravaFailed = 0,
+    this.stravaDeduped = 0,
     this.stravaFailures = const [],
     this.syncedAt,
   });

@@ -55,8 +55,8 @@ class SyncEngine {
     final List<SyncRecord> syncRecords = [];
 
     // === 按平台统计 ===
-    int xingzheSuccess = 0, xingzheFailed = 0;
-    int stravaSuccess = 0, stravaFailed = 0;
+    int xingzheSuccess = 0, xingzheFailed = 0, xingzheDeduped = 0;
+    int stravaSuccess = 0, stravaFailed = 0, stravaDeduped = 0;
     final List<FailedActivitySummary> xingzheFailures = [];
     final List<FailedActivitySummary> stravaFailures = [];
 
@@ -210,6 +210,7 @@ class SyncEngine {
         final skipStrava = await stateStore.isAlreadyUploaded(currentFingerprint!, 'strava');
         if (skipStrava) {
           platformResults.add(PlatformSyncResult(platform: SyncPlatform.strava, status: SyncStatus.deduped, syncedAt: now));
+          stravaDeduped++;
         } else if (!gcjCorrectionEnabled || !rewriteFailed) {
           try {
             final uploadId = await stravaClient!.uploadFit(uploadFile);
@@ -222,6 +223,7 @@ class SyncEngine {
               if (errorStr.contains('duplicate of')) {
                 await stateStore.markPlatformSynced(currentFingerprint!, 'strava', null);
                 platformResults.add(PlatformSyncResult(platform: SyncPlatform.strava, status: SyncStatus.deduped, syncedAt: now));
+                stravaDeduped++;
               } else {
                 platformResults.add(PlatformSyncResult(platform: SyncPlatform.strava, status: SyncStatus.failed, errorMessage: '$error', syncedAt: now));
                 platformsFailed++;
@@ -263,6 +265,7 @@ class SyncEngine {
         final skipXingzhe = await stateStore.isAlreadyUploaded(currentFingerprint!, 'xingzhe');
         if (skipXingzhe) {
           platformResults.add(PlatformSyncResult(platform: SyncPlatform.xingzhe, status: SyncStatus.deduped, syncedAt: now));
+          xingzheDeduped++;
         } else if (!gcjCorrectionEnabled || !rewriteFailed) {
           try {
             final uploadId = await xingzheClient!.uploadFit(uploadFile);
@@ -356,9 +359,11 @@ class SyncEngine {
       failureReasons: failureReasons,
       xingzheSuccess: xingzheSuccess,
       xingzheFailed: xingzheFailed,
+      xingzheDeduped: xingzheDeduped,
       xingzheFailures: xingzheFailures,
       stravaSuccess: stravaSuccess,
       stravaFailed: stravaFailed,
+      stravaDeduped: stravaDeduped,
       stravaFailures: stravaFailures,
       syncedAt: DateTime.now(),
     );

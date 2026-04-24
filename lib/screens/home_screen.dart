@@ -210,9 +210,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showBannerDetail(SyncResultBanner banner) {
     final hasXingzhe = banner.xingzheSuccess > 0 ||
         banner.xingzheFailed > 0 ||
+        banner.xingzheDeduped > 0 ||
         banner.xingzheFailures.isNotEmpty;
     final hasStrava = banner.stravaSuccess > 0 ||
         banner.stravaFailed > 0 ||
+        banner.stravaDeduped > 0 ||
         banner.stravaFailures.isNotEmpty;
 
     showDialog<void>(
@@ -227,24 +229,26 @@ class _HomeScreenState extends State<HomeScreen> {
               // 概览
               Text(banner.summaryLine,
                   style: const TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-
-              // 整体结果
-              Row(children: [
-                _chip('成功 ${banner.success}', Colors.green),
-                const SizedBox(width: 8),
-                _chip('失败 ${banner.failed}', Colors.red),
-              ]),
               const SizedBox(height: 16),
 
               // 行者
               if (hasXingzhe) ...[
                 _sectionTitle('行者'),
-                if (banner.xingzheSuccess > 0 || banner.xingzheFailed > 0)
+                if (banner.xingzheSuccess > 0 ||
+                    banner.xingzheFailed > 0 ||
+                    banner.xingzheDeduped > 0)
                   Row(children: [
-                    _chip('成功 ${banner.xingzheSuccess}', Colors.green),
-                    const SizedBox(width: 8),
-                    _chip('失败 ${banner.xingzheFailed}', Colors.red),
+                    if (banner.xingzheSuccess > 0)
+                      _chip('成功 ${banner.xingzheSuccess}', Colors.green),
+                    if (banner.xingzheSuccess > 0 &&
+                        (banner.xingzheFailed > 0 || banner.xingzheDeduped > 0))
+                      const SizedBox(width: 8),
+                    if (banner.xingzheFailed > 0)
+                      _chip('失败 ${banner.xingzheFailed}', Colors.red),
+                    if (banner.xingzheFailed > 0 && banner.xingzheDeduped > 0)
+                      const SizedBox(width: 8),
+                    if (banner.xingzheDeduped > 0)
+                      _chip('跳过 ${banner.xingzheDeduped}', Colors.white),
                   ]),
                 if (banner.xingzheFailures.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -262,11 +266,21 @@ class _HomeScreenState extends State<HomeScreen> {
               // Strava
               if (hasStrava) ...[
                 _sectionTitle('Strava'),
-                if (banner.stravaSuccess > 0 || banner.stravaFailed > 0)
+                if (banner.stravaSuccess > 0 ||
+                    banner.stravaFailed > 0 ||
+                    banner.stravaDeduped > 0)
                   Row(children: [
-                    _chip('成功 ${banner.stravaSuccess}', Colors.green),
-                    const SizedBox(width: 8),
-                    _chip('失败 ${banner.stravaFailed}', Colors.red),
+                    if (banner.stravaSuccess > 0)
+                      _chip('成功 ${banner.stravaSuccess}', Colors.green),
+                    if (banner.stravaSuccess > 0 &&
+                        (banner.stravaFailed > 0 || banner.stravaDeduped > 0))
+                      const SizedBox(width: 8),
+                    if (banner.stravaFailed > 0)
+                      _chip('失败 ${banner.stravaFailed}', Colors.red),
+                    if (banner.stravaFailed > 0 && banner.stravaDeduped > 0)
+                      const SizedBox(width: 8),
+                    if (banner.stravaDeduped > 0)
+                      _chip('跳过 ${banner.stravaDeduped}', Colors.white),
                   ]),
                 if (banner.stravaFailures.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -296,15 +310,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _chip(String label, Color color) {
+    final bool isWhiteChip = color == Colors.white;
+    final Color textColor = isWhiteChip ? Colors.black87 : color;
+    final Color borderColor = isWhiteChip ? Colors.grey.shade400 : color.withValues(alpha: 0.4);
+    final Color backgroundColor = isWhiteChip ? Colors.white : color.withValues(alpha: 0.12);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
+        border: Border.all(color: borderColor),
       ),
       child: Text(label,
-          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+          style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 
@@ -381,17 +399,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   spacing: 8,
                   runSpacing: 4,
                   children: [
-                    if (banner.xingzheSuccess > 0 || banner.xingzheFailed > 0)
+                    if (banner.xingzheSuccess > 0 ||
+                        banner.xingzheFailed > 0 ||
+                        banner.xingzheDeduped > 0)
                       _platformChip(
                         '行者',
                         banner.xingzheSuccess,
                         banner.xingzheFailed,
+                        banner.xingzheDeduped,
                       ),
-                    if (banner.stravaSuccess > 0 || banner.stravaFailed > 0)
+                    if (banner.stravaSuccess > 0 ||
+                        banner.stravaFailed > 0 ||
+                        banner.stravaDeduped > 0)
                       _platformChip(
                         'Strava',
                         banner.stravaSuccess,
                         banner.stravaFailed,
+                        banner.stravaDeduped,
                       ),
                   ],
                 ),
@@ -411,14 +435,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _platformChip(String name, int ok, int fail) {
+  Widget _platformChip(String name, int ok, int fail, int deduped) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Text('$name:', style: const TextStyle(fontSize: 12, color: Colors.grey)),
       const SizedBox(width: 4),
-      Text('$ok', style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
-      const SizedBox(width: 4),
+      if (ok > 0)
+        Text('$ok', style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
+      if (ok > 0 && (fail > 0 || deduped > 0))
+        const SizedBox(width: 4),
       if (fail > 0)
         Text('×$fail', style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.w600)),
+      if (fail > 0 && deduped > 0)
+        const SizedBox(width: 4),
+      if (deduped > 0)
+        Text('跳过$deduped', style: const TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w600)),
     ]);
   }
 
