@@ -84,9 +84,11 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
   List<SyncRecord> get _filteredRecords {
     return _records.where((record) {
       // Platform filter
-      final hasStrava = record.uploadedToStrava &&
+      final hasStrava =
+          record.uploadedToStrava &&
           record.platformResults.any((r) => r.platform == SyncPlatform.strava);
-      final hasXingzhe = record.uploadedToXingzhe &&
+      final hasXingzhe =
+          record.uploadedToXingzhe &&
           record.platformResults.any((r) => r.platform == SyncPlatform.xingzhe);
 
       if (!_showStrava && hasStrava) return false;
@@ -94,8 +96,10 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
 
       // Status filter — show record if any matching platform result qualifies
       final matchingResults = record.platformResults.where((r) {
-        if (r.platform == SyncPlatform.strava && !record.uploadedToStrava) return false;
-        if (r.platform == SyncPlatform.xingzhe && !record.uploadedToXingzhe) return false;
+        if (r.platform == SyncPlatform.strava && !record.uploadedToStrava)
+          return false;
+        if (r.platform == SyncPlatform.xingzhe && !record.uploadedToXingzhe)
+          return false;
         if (r.status == SyncStatus.success && !_showSuccess) return false;
         if (r.status == SyncStatus.failed && !_showFailed) return false;
         if (r.status == SyncStatus.deduped && !_showDeduped) return false;
@@ -133,7 +137,10 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                       ),
                       TextButton(
                         onPressed: () => Navigator.of(ctx).pop(true),
-                        child: const Text('清空', style: TextStyle(color: Colors.red)),
+                        child: const Text(
+                          '清空',
+                          style: TextStyle(color: Colors.red),
+                        ),
                       ),
                     ],
                   ),
@@ -160,30 +167,42 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
-                    : _filteredRecords.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.history, size: 64, color: Colors.grey),
-                                const SizedBox(height: 12),
-                                const Text('暂无同步记录', style: TextStyle(color: Colors.grey)),
-                                if (_fromDate != null || _toDate != null) ...[
-                                  const SizedBox(height: 8),
-                                  TextButton(
-                                    onPressed: _clearDateFilter,
-                                    child: const Text('清除日期筛选'),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            itemCount: _filteredRecords.length,
-                            itemBuilder: (ctx, idx) => _buildRecordTile(_filteredRecords[idx]),
+                ? Center(
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  )
+                : _filteredRecords.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.history, size: 64, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        const Text(
+                          '暂无同步记录',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        if (_fromDate != null || _toDate != null) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: _clearDateFilter,
+                            child: const Text('清除日期筛选'),
                           ),
+                        ],
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    itemCount: _filteredRecords.length,
+                    itemBuilder: (ctx, idx) =>
+                        _buildRecordTile(_filteredRecords[idx]),
+                  ),
           ),
         ],
       ),
@@ -195,7 +214,9 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,8 +291,12 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
 
   Widget _buildRecordTile(SyncRecord record) {
     // Determine overall sync status for the record
-    final hasSuccess = record.platformResults.any((r) => r.status == SyncStatus.success);
-    final hasFailed = record.platformResults.any((r) => r.status == SyncStatus.failed);
+    final hasSuccess = record.platformResults.any(
+      (r) => r.status == SyncStatus.success,
+    );
+    final hasFailed = record.platformResults.any(
+      (r) => r.status == SyncStatus.failed,
+    );
     final Color rowColor;
     if (hasFailed) {
       rowColor = Colors.red.shade50;
@@ -294,7 +319,10 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
               children: [
                 // Date badge
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.blue.shade100,
                     borderRadius: BorderRadius.circular(4),
@@ -315,7 +343,11 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                   const SizedBox(width: 3),
                   Text(
                     record.displayDistance,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700], fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
                 const SizedBox(width: 10),
@@ -325,7 +357,11 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                   const SizedBox(width: 3),
                   Text(
                     record.displayAscent,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[700], fontWeight: FontWeight.w500),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ],
                 const Spacer(),
@@ -359,7 +395,10 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                 return Expanded(
                   child: Container(
                     margin: EdgeInsets.only(right: isStrava ? 8 : 0),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: statusColor.withAlpha((0.12 * 255).round()),
                       borderRadius: BorderRadius.circular(6),
@@ -384,13 +423,29 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                             const Spacer(),
                             // Status icon
                             if (isSuccess)
-                              const Icon(Icons.check_circle, size: 14, color: Colors.green)
+                              const Icon(
+                                Icons.check_circle,
+                                size: 14,
+                                color: Colors.green,
+                              )
                             else if (isFailed)
-                              const Icon(Icons.error, size: 14, color: Colors.red)
+                              const Icon(
+                                Icons.error,
+                                size: 14,
+                                color: Colors.red,
+                              )
                             else if (result.status == SyncStatus.deduped)
-                              Icon(Icons.sync, size: 14, color: Colors.orange.shade600)
+                              Icon(
+                                Icons.sync,
+                                size: 14,
+                                color: Colors.orange.shade600,
+                              )
                             else
-                              const Icon(Icons.schedule, size: 14, color: Colors.grey),
+                              const Icon(
+                                Icons.schedule,
+                                size: 14,
+                                color: Colors.grey,
+                              ),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -406,14 +461,20 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
                           const SizedBox(height: 1),
                           Text(
                             '#${result.remoteActivityId}',
-                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey[600],
+                            ),
                           ),
                         ],
                         if (result.errorMessage != null) ...[
                           const SizedBox(height: 1),
                           Text(
                             result.errorMessage!,
-                            style: const TextStyle(fontSize: 10, color: Colors.red),
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.red,
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -432,19 +493,27 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
 
   String _statusLabel(SyncStatus status) {
     switch (status) {
-      case SyncStatus.success: return '成功';
-      case SyncStatus.failed: return '失败';
-      case SyncStatus.deduped: return '已同步';
-      case SyncStatus.pending: return '待处理';
+      case SyncStatus.success:
+        return '成功';
+      case SyncStatus.failed:
+        return '失败';
+      case SyncStatus.deduped:
+        return '已同步';
+      case SyncStatus.pending:
+        return '待处理';
     }
   }
 
   Color _statusColor(SyncStatus status) {
     switch (status) {
-      case SyncStatus.success: return Colors.green;
-      case SyncStatus.failed: return Colors.red;
-      case SyncStatus.deduped: return Colors.orange;
-      case SyncStatus.pending: return Colors.grey;
+      case SyncStatus.success:
+        return Colors.green;
+      case SyncStatus.failed:
+        return Colors.red;
+      case SyncStatus.deduped:
+        return Colors.orange;
+      case SyncStatus.pending:
+        return Colors.grey;
     }
   }
 

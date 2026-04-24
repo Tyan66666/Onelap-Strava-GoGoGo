@@ -36,16 +36,11 @@ Future<FitSessionMeta> parseFitSessionMeta(File fitFile) async {
       }
     }
 
-    return FitSessionMeta(
-      distanceM: distanceM,
-      ascentM: ascentM,
-      sport: sport,
-    );
+    return FitSessionMeta(distanceM: distanceM, ascentM: ascentM, sport: sport);
   } catch (_) {
     return const FitSessionMeta();
   }
 }
-
 
 typedef CacheDirectoryLoader = Future<Directory> Function();
 

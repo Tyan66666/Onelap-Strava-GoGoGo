@@ -19,7 +19,9 @@ void main() {
       );
 
       final SyncResultBanner banner = SyncResultBanner.fromSyncSummary(summary);
-      final SyncResultBanner restored = SyncResultBanner.fromJson(banner.toJson());
+      final SyncResultBanner restored = SyncResultBanner.fromJson(
+        banner.toJson(),
+      );
 
       expect(restored.stravaDeduped, 1);
       expect(restored.xingzheDeduped, 0);

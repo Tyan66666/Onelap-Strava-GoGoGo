@@ -1,10 +1,10 @@
 /// 单个失败活动的简要摘要（用于列表展示）
 class FailedActivitySummary {
   final String fingerprint;
-  final String date;       // displayDate: 2026-04-22
-  final String distance;  // displayDistance: 32.5km
-  final String ascent;     // displayAscent: 186m
-  final String? error;    // 简短错误描述
+  final String date; // displayDate: 2026-04-22
+  final String distance; // displayDistance: 32.5km
+  final String ascent; // displayAscent: 186m
+  final String? error; // 简短错误描述
 
   const FailedActivitySummary({
     required this.fingerprint,
@@ -42,9 +42,9 @@ class FailedActivitySummary {
 
 class SyncSummary {
   final int fetched;
-  final int deduped;          // 本地判重跳过的（不计入成功/失败）
-  final int success;          // 本次实际同步成功（不含 deduped 跳过）
-  final int failed;           // 本次实际失败（不含 deduped 跳过）
+  final int deduped; // 本地判重跳过的（不计入成功/失败）
+  final int success; // 本次实际同步成功（不含 deduped 跳过）
+  final int failed; // 本次实际失败（不含 deduped 跳过）
   final String? abortedReason;
   final List<String> failureReasons;
 

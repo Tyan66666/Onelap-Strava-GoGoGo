@@ -2,13 +2,13 @@ import 'sync_summary.dart';
 
 /// 单次同步运行的完整结果摘要（用于 HomeScreen 按钮下方列表展示）
 class SyncResultBanner {
-  final String id;    // unique id for key/dismiss
+  final String id; // unique id for key/dismiss
   final DateTime syncedAt;
 
   // 整体概览
   final int fetched;
   final int deduped;
-  final int pending;   // fetched - deduped
+  final int pending; // fetched - deduped
   final int success;
   final int failed;
 
@@ -93,21 +93,30 @@ class SyncResultBanner {
       xingzheSuccess: json['xingzheSuccess'] as int? ?? 0,
       xingzheFailed: json['xingzheFailed'] as int? ?? 0,
       xingzheDeduped: json['xingzheDeduped'] as int? ?? 0,
-      xingzheFailures: (json['xingzheFailures'] as List?)
-          ?.map((e) => FailedActivitySummary.fromJson(e as Map<String, dynamic>))
-          .toList() ?? [],
+      xingzheFailures:
+          (json['xingzheFailures'] as List?)
+              ?.map(
+                (e) =>
+                    FailedActivitySummary.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
       stravaSuccess: json['stravaSuccess'] as int? ?? 0,
       stravaFailed: json['stravaFailed'] as int? ?? 0,
       stravaDeduped: json['stravaDeduped'] as int? ?? 0,
-      stravaFailures: (json['stravaFailures'] as List?)
-          ?.map((e) => FailedActivitySummary.fromJson(e as Map<String, dynamic>))
-          .toList() ?? [],
+      stravaFailures:
+          (json['stravaFailures'] as List?)
+              ?.map(
+                (e) =>
+                    FailedActivitySummary.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
     );
   }
 
   /// 概览行文案
-  String get summaryLine =>
-      '共获取$fetched条，$deduped条已通过，$pending条需同步';
+  String get summaryLine => '共获取$fetched条，$deduped条已通过，$pending条需同步';
 
   /// 简要时间标签（用于列表显示）
   String get timeLabel {
@@ -127,7 +136,9 @@ class SyncResultBanner {
     failed: failed,
     failureReasons: [
       ...xingzheFailures.map((f) => '行者失败: ${f.displayText} ${f.error ?? ''}'),
-      ...stravaFailures.map((f) => 'Strava失败: ${f.displayText} ${f.error ?? ''}'),
+      ...stravaFailures.map(
+        (f) => 'Strava失败: ${f.displayText} ${f.error ?? ''}',
+      ),
     ],
     xingzheSuccess: xingzheSuccess,
     xingzheFailed: xingzheFailed,
