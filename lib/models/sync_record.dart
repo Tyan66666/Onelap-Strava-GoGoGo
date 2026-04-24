@@ -1,14 +1,6 @@
-enum SyncPlatform {
-  strava,
-  xingzhe,
-}
+enum SyncPlatform { strava, xingzhe }
 
-enum SyncStatus {
-  pending,
-  success,
-  failed,
-  deduped,
-}
+enum SyncStatus { pending, success, failed, deduped }
 
 class PlatformSyncResult {
   final SyncPlatform platform;
@@ -26,12 +18,12 @@ class PlatformSyncResult {
   });
 
   Map<String, dynamic> toJson() => {
-        'platform': platform.name,
-        'status': status.name,
-        'remoteActivityId': remoteActivityId,
-        'errorMessage': errorMessage,
-        'syncedAt': syncedAt,
-      };
+    'platform': platform.name,
+    'status': status.name,
+    'remoteActivityId': remoteActivityId,
+    'errorMessage': errorMessage,
+    'syncedAt': syncedAt,
+  };
 
   factory PlatformSyncResult.fromJson(Map<String, dynamic> json) {
     return PlatformSyncResult(
@@ -74,8 +66,10 @@ class SyncRecord {
 
   /// Distance in meters (from FIT session)
   final double? distanceM;
+
   /// Total ascent in meters (from FIT session)
   final int? ascentM;
+
   /// Sport type from FIT session (e.g. cycling, running)
   final String? sport;
 
@@ -118,18 +112,17 @@ class SyncRecord {
   }
 
   Map<String, dynamic> toJson() => {
-        'fingerprint': fingerprint,
-        'sourceFilename': sourceFilename,
-        'startTime': startTime,
-        'syncedAt': syncedAt.toIso8601String(),
-        'distanceM': distanceM,
-        'ascentM': ascentM,
-        'sport': sport,
-        'uploadedToStrava': uploadedToStrava,
-        'uploadedToXingzhe': uploadedToXingzhe,
-        'platformResults':
-            platformResults.map((r) => r.toJson()).toList(),
-      };
+    'fingerprint': fingerprint,
+    'sourceFilename': sourceFilename,
+    'startTime': startTime,
+    'syncedAt': syncedAt.toIso8601String(),
+    'distanceM': distanceM,
+    'ascentM': ascentM,
+    'sport': sport,
+    'uploadedToStrava': uploadedToStrava,
+    'uploadedToXingzhe': uploadedToXingzhe,
+    'platformResults': platformResults.map((r) => r.toJson()).toList(),
+  };
 
   factory SyncRecord.fromJson(Map<String, dynamic> json) {
     return SyncRecord(
@@ -144,9 +137,11 @@ class SyncRecord {
       sport: json['sport'] as String?,
       uploadedToStrava: json['uploadedToStrava'] as bool? ?? false,
       uploadedToXingzhe: json['uploadedToXingzhe'] as bool? ?? false,
-      platformResults: (json['platformResults'] as List<dynamic>?)
-              ?.map((e) =>
-                  PlatformSyncResult.fromJson(e as Map<String, dynamic>))
+      platformResults:
+          (json['platformResults'] as List<dynamic>?)
+              ?.map(
+                (e) => PlatformSyncResult.fromJson(e as Map<String, dynamic>),
+              )
               .toList() ??
           [],
     );
@@ -181,8 +176,6 @@ class SyncRecord {
   /// 合并另一条同 fingerprint 的记录。
   /// 同平台结果取 syncedAt 最新的那个，覆盖旧结果。
   SyncRecord mergeWith(SyncRecord other) {
-    if (other.fingerprint != fingerprint) return this;
-
     final mergedResults = <SyncPlatform, PlatformSyncResult>{};
     for (final r in [...platformResults, ...other.platformResults]) {
       final existing = mergedResults[r.platform];
@@ -190,9 +183,12 @@ class SyncRecord {
         mergedResults[r.platform] = r;
       } else {
         // 取 syncedAt 较新的那个
-        final existingTime = DateTime.tryParse(existing.syncedAt ?? '') ?? DateTime(1970);
+        final existingTime =
+            DateTime.tryParse(existing.syncedAt ?? '') ?? DateTime(1970);
         final otherTime = DateTime.tryParse(r.syncedAt ?? '') ?? DateTime(1970);
-        mergedResults[r.platform] = otherTime.isAfter(existingTime) ? r : existing;
+        mergedResults[r.platform] = otherTime.isAfter(existingTime)
+            ? r
+            : existing;
       }
     }
 
@@ -205,7 +201,9 @@ class SyncRecord {
     final base = otherTime.isAfter(thisTime) ? other : this;
 
     return SyncRecord(
-      fingerprint: fingerprint,
+      fingerprint: base.fingerprint.isNotEmpty
+          ? base.fingerprint
+          : (other.fingerprint.isNotEmpty ? other.fingerprint : fingerprint),
       sourceFilename: base.sourceFilename,
       startTime: base.startTime,
       syncedAt: base.syncedAt,

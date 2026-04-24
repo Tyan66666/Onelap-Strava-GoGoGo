@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onelap_strava_sync/models/onelap_activity.dart';
+import 'package:onelap_strava_sync/models/sync_record.dart';
 import 'package:onelap_strava_sync/services/fit_coordinate_rewrite_service.dart';
 import 'package:onelap_strava_sync/services/onelap_client.dart';
 import 'package:onelap_strava_sync/services/state_store.dart';
@@ -74,16 +75,32 @@ class _FakeStateStore extends StateStore {
   bool synced = false;
 
   @override
-  Future<bool> isSynced(String fingerprint) async {
+  Future<bool> isAlreadyUploaded(String fingerprint, String platform) async {
     checkedFingerprint = fingerprint;
     return synced;
   }
 
   @override
-  Future<void> markSynced(String fingerprint, int? stravaActivityId) async {
+  Future<bool> isDedupeKey(String dedupeKey) async => false;
+
+  @override
+  Future<String?> getDedupeKeyFingerprint(String dedupeKey) async => null;
+
+  @override
+  Future<void> markPlatformSynced(
+    String fingerprint,
+    String platform,
+    int? remoteActivityId,
+  ) async {
     markedFingerprint = fingerprint;
-    markedActivityId = stravaActivityId;
+    markedActivityId = remoteActivityId;
   }
+
+  @override
+  Future<void> markDedupeKey(String dedupeKey, String fingerprint) async {}
+
+  @override
+  Future<void> saveSyncRecords(List<SyncRecord> records) async {}
 }
 
 class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
@@ -297,9 +314,10 @@ void main() {
 
       expect(summary.failed, 1);
       expect(summary.success, 0);
-      expect(summary.failureReasons, <String>[
-        '坐标转换失败 (activity.fit): bad coordinate',
-      ]);
+      expect(summary.failureReasons, isEmpty);
+      expect(summary.stravaFailed, 1);
+      expect(summary.stravaFailures, hasLength(1));
+      expect(summary.stravaFailures.single.error, '坐标转换失败');
       expect(stravaClient.uploadedFile, isNull);
     });
   });

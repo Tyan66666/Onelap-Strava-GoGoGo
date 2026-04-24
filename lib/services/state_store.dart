@@ -5,6 +5,20 @@ import '../models/sync_record.dart';
 import '../models/sync_result_banner.dart';
 
 class StateStore {
+  String _fallbackHistoryIdentity(SyncRecord record) {
+    return 'fallback:${record.startTime}:${record.sourceFilename}';
+  }
+
+  String _historyIdentity(SyncRecord record) {
+    if (record.fingerprint.isNotEmpty) return 'fp:${record.fingerprint}';
+    return _fallbackHistoryIdentity(record);
+  }
+
+  bool _historyMatches(SyncRecord left, SyncRecord right) {
+    return _historyIdentity(left) == _historyIdentity(right) ||
+        _fallbackHistoryIdentity(left) == _fallbackHistoryIdentity(right);
+  }
+
   Future<File> _stateFile() async {
     final dir = await getApplicationDocumentsDirectory();
     return File('${dir.path}/state.json');
@@ -12,15 +26,26 @@ class StateStore {
 
   Future<Map<String, dynamic>> _load() async {
     final file = await _stateFile();
-    if (!await file.exists()) return {'synced': {}, 'history': <Map<String, dynamic>>[], 'dedupeKeys': <String, dynamic>{}};
+    if (!await file.exists()) {
+      return {
+        'synced': {},
+        'history': <Map<String, dynamic>>[],
+        'dedupeKeys': <String, dynamic>{},
+      };
+    }
     try {
-      final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final data =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
       data.putIfAbsent('synced', () => <String, dynamic>{});
       data.putIfAbsent('history', () => <Map<String, dynamic>>[]);
       data.putIfAbsent('dedupeKeys', () => <String, dynamic>{});
       return data;
     } catch (_) {
-      return {'synced': {}, 'history': <Map<String, dynamic>>[], 'dedupeKeys': <String, dynamic>{}};
+      return {
+        'synced': {},
+        'history': <Map<String, dynamic>>[],
+        'dedupeKeys': <String, dynamic>{},
+      };
     }
   }
 
@@ -73,7 +98,11 @@ class StateStore {
 
   /// 按平台标记已同步（记录该平台的成功状态）。
   /// 同时更新 dedupeKeys 中对应 entry 的 platforms 状态（保持一致性）。
-  Future<void> markPlatformSynced(String fingerprint, String platform, int? remoteActivityId) async {
+  Future<void> markPlatformSynced(
+    String fingerprint,
+    String platform,
+    int? remoteActivityId,
+  ) async {
     final data = await _load();
     final synced = (data['synced'] as Map)[fingerprint] as Map? ?? {};
     synced['platforms'] ??= {};
@@ -135,7 +164,8 @@ class StateStore {
     (data['dedupeKeys'] as Map? ?? {})[dedupeKey] = {
       'fingerprint': fingerprint,
       'synced_at': DateTime.now().toUtc().toIso8601String(),
-      'platforms': <String, String>{}, // 初始化 platforms，后续 markPlatformSynced 会填充
+      'platforms':
+          <String, String>{}, // 初始化 platforms，后续 markPlatformSynced 会填充
     };
     await _save(data);
   }
@@ -148,12 +178,13 @@ class StateStore {
     final history = (data['history'] as List).cast<Map<String, dynamic>>();
 
     for (final record in records) {
-      // Update existing record if fingerprint already exists (re-upload case)
+      // Update existing record when the same history identity already exists.
       final existingIdx = history.indexWhere(
-        (r) => r['fingerprint'] == record.fingerprint,
+        (r) => _historyMatches(SyncRecord.fromJson(r), record),
       );
       if (existingIdx >= 0) {
-        history[existingIdx] = record.toJson();
+        final existingRecord = SyncRecord.fromJson(history[existingIdx]);
+        history[existingIdx] = existingRecord.mergeWith(record).toJson();
       } else {
         history.insert(0, record.toJson());
       }
@@ -194,11 +225,14 @@ class StateStore {
     final Map<String, SyncRecord> merged = {};
     for (final r in filtered) {
       final record = SyncRecord.fromJson(r);
-      final fp = record.fingerprint;
-      if (merged.containsKey(fp)) {
-        merged[fp] = merged[fp]!.mergeWith(record);
+      final existingKey = merged.keys.cast<String?>().firstWhere(
+        (key) => key != null && _historyMatches(merged[key]!, record),
+        orElse: () => null,
+      );
+      if (existingKey != null) {
+        merged[existingKey] = merged[existingKey]!.mergeWith(record);
       } else {
-        merged[fp] = record;
+        merged[_historyIdentity(record)] = record;
       }
     }
 
@@ -228,9 +262,8 @@ class StateStore {
   /// 保存一次同步结果 banner（自动清理超出的旧记录）
   Future<void> saveSyncResultBanner(SyncResultBanner banner) async {
     final data = await _load();
-    final banners = (data['banners'] as List?)
-        ?.cast<Map<String, dynamic>>()
-        ?? [];
+    final banners =
+        (data['banners'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
     banners.insert(0, banner.toJson());
 
@@ -246,12 +279,9 @@ class StateStore {
   /// 加载最近 N 条同步结果 banner
   Future<List<SyncResultBanner>> loadSyncResultBanners({int? limit}) async {
     final data = await _load();
-    final banners = (data['banners'] as List?)
-        ?.cast<Map<String, dynamic>>()
-        ?? [];
-    final result = banners
-        .map((b) => SyncResultBanner.fromJson(b))
-        .toList()
+    final banners =
+        (data['banners'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final result = banners.map((b) => SyncResultBanner.fromJson(b)).toList()
       ..sort((a, b) => b.syncedAt.compareTo(a.syncedAt)); // 最新的在前
     return limit != null ? result.take(limit).toList() : result;
   }
@@ -259,9 +289,8 @@ class StateStore {
   /// 删除指定 id 的 banner
   Future<void> deleteSyncResultBanner(String bannerId) async {
     final data = await _load();
-    final banners = (data['banners'] as List?)
-        ?.cast<Map<String, dynamic>>()
-        ?? [];
+    final banners =
+        (data['banners'] as List?)?.cast<Map<String, dynamic>>() ?? [];
     banners.removeWhere((b) => b['id'] == bannerId);
     data['banners'] = banners;
     await _save(data);
