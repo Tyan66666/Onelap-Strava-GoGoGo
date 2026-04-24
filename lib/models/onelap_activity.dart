@@ -1,5 +1,6 @@
 class OneLapActivity {
   final String activityId;
+  final String? recordId;
   final String startTime;
   final String fitUrl;
   final String recordKey;
@@ -11,6 +12,7 @@ class OneLapActivity {
 
   const OneLapActivity({
     required this.activityId,
+    this.recordId,
     required this.startTime,
     required this.fitUrl,
     required this.recordKey,

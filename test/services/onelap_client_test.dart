@@ -33,22 +33,298 @@ class _DownloadRoute {
 }
 
 void main() {
-  group('OneLapClient.listFitActivities', () {
-    test('prefers durl over fit_url and fitUrl for download URL', () async {
+  group('OneLapActivity', () {
+    test(
+      'stores recordId on OneLapActivity without affecting legacy fields',
+      () {
+        const OneLapActivity activity = OneLapActivity(
+          activityId: '1',
+          startTime: '2026-03-29T10:00:00',
+          fitUrl: 'geo/20260329/file.fit',
+          recordKey: 'fileKey:geo/20260329/file.fit',
+          sourceFilename: 'file.fit',
+          recordId: 'record-123',
+          rawFitUrl: 'geo/20260329/file.fit',
+          rawDurl: 'http://fits.rfsvr.net/file.fit?token=abc',
+          rawFileKey: 'geo/20260329/file.fit',
+        );
+
+        expect(activity.recordId, 'record-123');
+        expect(activity.activityId, '1');
+        expect(activity.startTime, '2026-03-29T10:00:00');
+        expect(activity.fitUrl, 'geo/20260329/file.fit');
+        expect(activity.recordKey, 'fileKey:geo/20260329/file.fit');
+        expect(activity.sourceFilename, 'file.fit');
+        expect(activity.rawFitUrl, 'geo/20260329/file.fit');
+        expect(activity.rawDurl, 'http://fits.rfsvr.net/file.fit?token=abc');
+        expect(activity.rawFileKey, 'geo/20260329/file.fit');
+      },
+    );
+  });
+
+  group('OneLapClient.login', () {
+    test(
+      'caches token and refresh token for subsequent authenticated requests',
+      () async {
+        int loginRequests = 0;
+        final Map<String, Object?> authHeadersByUrl = <String, Object?>{};
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          authHeadersByUrl[url] = options.headers['Authorization'];
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'cached-token-123',
+                  'refresh_token': 'cached-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[4, 5, 6, 7],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-login-cache-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 1);
+        expect(authHeadersByUrl[otmFitContentUrl], 'cached-token-123');
+        expect(await downloaded.readAsBytes(), <int>[4, 5, 6, 7]);
+      },
+    );
+
+    test(
+      'still accepts OneLap success code 0 when token fields are present',
+      () async {
+        int loginRequests = 0;
+        final Map<String, Object?> authHeadersByUrl = <String, Object?>{};
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          authHeadersByUrl[url] = options.headers['Authorization'];
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 0,
+                'data': {
+                  'token': 'cached-token-123',
+                  'refresh_token': 'cached-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[8, 9, 10],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-login-code-zero-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 1);
+        expect(authHeadersByUrl[otmFitContentUrl], 'cached-token-123');
+        expect(await downloaded.readAsBytes(), <int>[8, 9, 10]);
+      },
+    );
+
+    test('fails when OneLap response omits required token fields', () async {
       final Dio dio = Dio();
       dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString() == 'http://u.onelap.cn/analysis/list') {
+        if (options.uri.toString() == 'http://example.com/api/login') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': 'cached-token-123'},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await expectLater(
+        client.login(),
+        throwsA(
+          isA<Exception>().having(
+            (Exception error) => error.toString(),
+            'message',
+            contains('missing token fields'),
+          ),
+        ),
+      );
+    });
+
+    test('accepts legacy list-shaped login payload with token fields', () async {
+      int loginRequests = 0;
+      final Map<String, Object?> authHeadersByUrl = <String, Object?>{};
+      const String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      const String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+        authHeadersByUrl[url] = options.headers['Authorization'];
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
           return ResponseBody.fromString(
             jsonEncode({
               'code': 200,
               'data': [
                 {
-                  'id': 1,
-                  'start_time': '2026-03-29T10:00:00',
-                  'fileKey': 'demo.fit',
-                  'fit_url': 'geo/20260329/wrong.fit',
-                  'fitUrl': 'geo/20260329/also-wrong.fit',
-                  'durl': 'http://fits.rfsvr.net/correct.fit?token=abc',
+                  'token': 'legacy-token-123',
+                  'refresh_token': 'legacy-refresh-456',
                 },
               ],
             }),
@@ -58,9 +334,1461 @@ void main() {
             },
           );
         }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          return ResponseBody.fromBytes(
+            <int>[1, 2, 3, 4],
+            HttpStatus.ok,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-login-legacy-list-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      final File downloaded = await client.downloadFit(
+        'http://fits.rfsvr.net/correct.fit?token=abc',
+        'demo.fit',
+        outputDir,
+        activity: const OneLapActivity(
+          activityId: '93825',
+          startTime: '2026-03-31T15:21:16',
+          fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          recordKey:
+              'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+          sourceFilename: 'demo.fit',
+          rawFitUrl: 'geo/20260329/wrong.fit',
+          rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          rawFileKey: otmFitPath,
+        ),
+      );
+
+      expect(loginRequests, 1);
+      expect(authHeadersByUrl[otmFitContentUrl], 'legacy-token-123');
+      expect(await downloaded.readAsBytes(), <int>[1, 2, 3, 4]);
+    });
+  });
+
+  group('OneLapClient.listFitActivities', () {
+    test(
+      'lists recent activities from the token-backed OTM record API and enriches recordKey from detail',
+      () async {
+        final List<String> requests = <String>[];
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        final List<String> requestBodies = <String>[];
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add('${options.method} $url');
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            requestBodies.add(jsonEncode(options.data));
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 321,
+                      'name': 'Morning Ride',
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'durl': 'http://fits.rfsvr.net/recent.fit?token=abc',
+                    },
+                    {
+                      'id': 111,
+                      'start_riding_time': '2026-03-24T10:00:00',
+                      'durl': 'http://fits.rfsvr.net/older.fit?token=def',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/321') {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'fileKey': 'geo/20260328/recent.fit',
+                  'fit_url': 'geo/20260328/recent-alt.fit',
+                  'durl': 'http://fits.rfsvr.net/detail.fit?token=abc',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(
+          requests,
+          contains('POST https://otm.onelap.cn/api/otm/ride_record/list'),
+        );
+        expect(
+          requests,
+          contains(
+            'GET https://otm.onelap.cn/api/otm/ride_record/analysis/321',
+          ),
+        );
+        expect(otmAuthHeaders, everyElement('otm-token-123'));
+        expect(requestBodies, <String>['{"page":1,"limit":50}']);
+        expect(activities.single.activityId, '321');
+        expect(activities.single.recordId, '321');
+        expect(activities.single.startTime, '2026-03-28T10:00:00');
+        expect(
+          activities.single.fitUrl,
+          'http://fits.rfsvr.net/detail.fit?token=abc',
+        );
+        expect(activities.single.recordKey, 'fileKey:geo/20260328/recent.fit');
+        expect(activities.single.sourceFilename, 'Morning Ride');
+      },
+    );
+
+    test(
+      'throws OnelapRiskControlError for risk-control list responses',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 429,
+                'msg': 'risk control triggered',
+                'error': 'too many requests',
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+          throwsA(
+            isA<OnelapRiskControlError>().having(
+              (OnelapRiskControlError error) => error.message,
+              'message',
+              contains('risk control triggered'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('throws OnelapRiskControlError for code -2 list responses', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'token': 'otm-token-123',
+                'refresh_token': 'otm-refresh-456',
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+          return ResponseBody.fromString(
+            jsonEncode({'code': -2, 'msg': 'temporary backend message'}),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await expectLater(
+        client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+        throwsA(
+          isA<OnelapRiskControlError>().having(
+            (OnelapRiskControlError error) => error.message,
+            'message',
+            contains('temporary backend message'),
+          ),
+        ),
+      );
+    });
+
+    test(
+      'does not treat generic throttling text alone as risk control for list responses',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({'code': 429, 'msg': 'too many requests'}),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains('OneLap activities request failed: too many requests'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'does not treat unrelated nested payload text as risk control for list responses',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 500,
+                'msg': 'temporary backend message',
+                'data': {
+                  'details':
+                      'previous risk control triggered for another account',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains(
+                'OneLap activities request failed: temporary backend message',
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'caps single-page list requests and results to min(limit, 50)',
+      () async {
+        final List<String> requestBodies = <String>[];
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            requestBodies.add(jsonEncode(options.data));
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 101,
+                      'name': 'Ride 1',
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'durl': 'http://fits.rfsvr.net/1.fit?token=abc',
+                    },
+                    {
+                      'id': 102,
+                      'name': 'Ride 2',
+                      'start_riding_time': '2026-03-28T11:00:00',
+                      'durl': 'http://fits.rfsvr.net/2.fit?token=abc',
+                    },
+                    {
+                      'id': 103,
+                      'name': 'Ride 3',
+                      'start_riding_time': '2026-03-28T12:00:00',
+                      'durl': 'http://fits.rfsvr.net/3.fit?token=abc',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url.startsWith(
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/',
+          )) {
+            final String recordId = url.split('/').last;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'durl': 'http://fits.rfsvr.net/$recordId.fit?token=abc',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+          limit: 2,
+        );
+
+        expect(requestBodies, <String>['{"page":1,"limit":2}']);
+        expect(activities, hasLength(2));
+        expect(
+          activities.map((OneLapActivity activity) => activity.activityId),
+          <String>['101', '102'],
+        );
+      },
+    );
+
+    test('returns no activities when limit is zero', () async {
+      final List<String> requestBodies = <String>[];
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'token': 'otm-token-123',
+                'refresh_token': 'otm-refresh-456',
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+          requestBodies.add(jsonEncode(options.data));
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'list': [
+                  {
+                    'id': 661,
+                    'name': 'Should Not Return',
+                    'start_riding_time': '2026-03-28T10:00:00',
+                    'durl': 'http://fits.rfsvr.net/ignored.fit?token=abc',
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/661') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'durl': 'http://fits.rfsvr.net/ignored.fit?token=abc'},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      final List<OneLapActivity> activities = await client.listFitActivities(
+        since: DateTime.utc(2026, 3, 27),
+        limit: 0,
+      );
+
+      expect(requestBodies, isEmpty);
+      expect(activities, isEmpty);
+    });
+
+    test(
+      'falls back to recordId-based recordKey when detail enrichment request fails',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {'id': 654, 'start_riding_time': '2026-03-28T10:00:00'},
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/654') {
+            return ResponseBody.fromString(
+              jsonEncode({'code': 500, 'msg': 'detail failed'}),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordId, '654');
+        expect(activities.single.recordKey, 'recordId:654');
+        expect(activities.single.fitUrl, '');
+      },
+    );
+
+    test(
+      'keeps list-derived legacy recordKey when detail enrichment request fails',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 656,
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'fileKey': 'geo/20260328/recent.fit',
+                      'fit_url': 'geo/20260328/recent.fit',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/656') {
+            return ResponseBody.fromString(
+              jsonEncode({'code': 500, 'msg': 'detail failed'}),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordId, '656');
+        expect(activities.single.recordKey, 'fileKey:geo/20260328/recent.fit');
+        expect(activities.single.fitUrl, 'geo/20260328/recent.fit');
+        expect(activities.single.rawFileKey, 'geo/20260328/recent.fit');
+      },
+    );
+
+    test(
+      'prefers detail-derived legacy recordKey when detail enrichment succeeds with a different identity',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 657,
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'fileKey': 'geo/20260328/list.fit',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/657') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'fileKey': 'geo/20260328/detail.fit',
+                  'fit_url': 'geo/20260328/detail.fit',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordKey, 'fileKey:geo/20260328/detail.fit');
+        expect(activities.single.rawFileKey, 'geo/20260328/detail.fit');
+        expect(activities.single.fitUrl, 'geo/20260328/detail.fit');
+      },
+    );
+
+    test(
+      'prefers stable detail fileKey over list durl for recordKey',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 660,
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'durl': 'http://fits.rfsvr.net/transient.fit?token=abc',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/660') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'fileKey': 'geo/20260328/stable.fit',
+                  'durl': 'http://fits.rfsvr.net/transient.fit?token=xyz',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordKey, 'fileKey:geo/20260328/stable.fit');
+        expect(activities.single.rawFileKey, 'geo/20260328/stable.fit');
+        expect(
+          activities.single.fitUrl,
+          'http://fits.rfsvr.net/transient.fit?token=xyz',
+        );
+      },
+    );
+
+    test(
+      'replaces stale list-derived legacy download fields when detail enrichment succeeds',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 658,
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'fileKey': 'geo/20260328/list.fit',
+                      'fit_url': 'geo/20260328/list.fit',
+                      'durl': 'http://fits.rfsvr.net/list.fit?token=abc',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/658') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'fileKey': 'geo/20260328/detail.fit',
+                  'fit_url': 'geo/20260328/detail.fit',
+                  'fitUrl': 'geo/20260328/detail-alt.fit',
+                  'durl': 'http://fits.rfsvr.net/detail.fit?token=xyz',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordKey, 'fileKey:geo/20260328/detail.fit');
+        expect(activities.single.rawFileKey, 'geo/20260328/detail.fit');
+        expect(activities.single.rawFitUrl, 'geo/20260328/detail.fit');
+        expect(activities.single.rawFitUrlAlt, 'geo/20260328/detail-alt.fit');
+        expect(
+          activities.single.rawDurl,
+          'http://fits.rfsvr.net/detail.fit?token=xyz',
+        );
+        expect(
+          activities.single.fitUrl,
+          'http://fits.rfsvr.net/detail.fit?token=xyz',
+        );
+      },
+    );
+
+    test('reads nested ridingRecord fields from detail payload', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'token': 'otm-token-123',
+                'refresh_token': 'otm-refresh-456',
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'list': [
+                  {'id': 659, 'start_riding_time': '2026-03-28T10:00:00'},
+                ],
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/659') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'ridingRecord': {
+                  'fileKey': 'geo/20260328/nested.fit',
+                  'fitUrl': 'geo/20260328/nested-alt.fit',
+                  'durl': 'http://fits.rfsvr.net/nested.fit?token=xyz',
+                },
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      final List<OneLapActivity> activities = await client.listFitActivities(
+        since: DateTime.utc(2026, 3, 27),
+      );
+
+      expect(activities, hasLength(1));
+      expect(activities.single.recordId, '659');
+      expect(activities.single.rawFileKey, 'geo/20260328/nested.fit');
+      expect(activities.single.rawFitUrlAlt, 'geo/20260328/nested-alt.fit');
+      expect(
+        activities.single.rawDurl,
+        'http://fits.rfsvr.net/nested.fit?token=xyz',
+      );
+      expect(
+        activities.single.fitUrl,
+        'http://fits.rfsvr.net/nested.fit?token=xyz',
+      );
+    });
+
+    test(
+      'surfaces OnelapRiskControlError when detail enrichment hits risk control',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 655,
+                      'start_riding_time': '2026-03-28T10:00:00',
+                      'fit_url': 'geo/20260328/recent.fit',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/655') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 429,
+                'msg': 'risk control triggered',
+                'error': 'too many requests',
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+          throwsA(
+            isA<OnelapRiskControlError>().having(
+              (OnelapRiskControlError error) => error.message,
+              'message',
+              contains('risk control triggered'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'falls back to recordId-based recordKey when detail payload has no legacy identity fields',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {'id': 777, 'start_riding_time': '2026-03-28T10:00:00'},
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/777') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'summary': {'distance': 1200},
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.recordId, '777');
+        expect(activities.single.recordKey, 'recordId:777');
+        expect(activities.single.fitUrl, '');
+        expect(activities.single.sourceFilename, '2026-03-28T10:00:00');
+      },
+    );
+
+    test(
+      'uses start_riding_time as sourceFilename fallback when record name is absent',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 778,
+                      'start_riding_time': '2026-03-28T11:30:00',
+                      'fitUrl': 'geo/20260328/recent.fit',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/778') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {'fitUrl': 'geo/20260328/recent.fit'},
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final List<OneLapActivity> activities = await client.listFitActivities(
+          since: DateTime.utc(2026, 3, 27),
+        );
+
+        expect(activities, hasLength(1));
+        expect(activities.single.sourceFilename, '2026-03-28T11:30:00');
+        expect(activities.single.fitUrl, 'geo/20260328/recent.fit');
+      },
+    );
+
+    test(
+      'throws a clear error when OneLap detail payload is invalid',
+      () async {
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'list': [
+                    {
+                      'id': 888,
+                      'created_at': 1774768800,
+                      'durl': 'http://fits.rfsvr.net/recent.fit?token=abc',
+                    },
+                  ],
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/888') {
+            return ResponseBody.fromString(
+              jsonEncode({'code': 200, 'data': 'invalid'}),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.listFitActivities(since: DateTime.utc(2026, 3, 27)),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains('OneLap detail payload is invalid'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('prefers durl over fit_url and fitUrl for download URL', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
         if (options.uri.toString() == 'http://example.com/api/login') {
           return ResponseBody.fromString(
-            '{"code":200}',
+            jsonEncode({
+              'code': 200,
+              'data': [
+                {'token': 'otm-token-123', 'refresh_token': 'otm-refresh-456'},
+              ],
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+        if (options.uri.toString() ==
+            'https://otm.onelap.cn/api/otm/ride_record/list') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'list': [
+                  {
+                    'id': 1,
+                    'start_time': '2026-03-29T10:00:00',
+                    'fileKey': 'demo.fit',
+                    'fit_url': 'geo/20260329/wrong.fit',
+                    'fitUrl': 'geo/20260329/also-wrong.fit',
+                    'durl': 'http://fits.rfsvr.net/correct.fit?token=abc',
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+        if (options.uri.toString() ==
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/1') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'fileKey': 'demo.fit',
+                'fit_url': 'geo/20260329/wrong.fit',
+                'fitUrl': 'geo/20260329/also-wrong.fit',
+                'durl': 'http://fits.rfsvr.net/correct.fit?token=abc',
+              },
+            }),
             200,
             headers: <String, List<String>>{
               Headers.contentTypeHeader: <String>['application/json'],
@@ -86,22 +1814,18 @@ void main() {
         activities.single.fitUrl,
         'http://fits.rfsvr.net/correct.fit?token=abc',
       );
-      expect(activities.single.sourceFilename, 'demo.fit');
+      expect(activities.single.sourceFilename, '2026-03-29T10:00:00');
     });
 
     test('uses fileKey when no fit URL fields exist', () async {
       final Dio dio = Dio();
       dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString() == 'http://u.onelap.cn/analysis/list') {
+        if (options.uri.toString() == 'http://example.com/api/login') {
           return ResponseBody.fromString(
             jsonEncode({
               'code': 200,
               'data': [
-                {
-                  'id': 1,
-                  'start_time': '2026-03-29T10:00:00',
-                  'fileKey': 'geo/20260329/filekey.fit',
-                },
+                {'token': 'otm-token-123', 'refresh_token': 'otm-refresh-456'},
               ],
             }),
             200,
@@ -110,9 +1834,34 @@ void main() {
             },
           );
         }
-        if (options.uri.toString() == 'http://example.com/api/login') {
+        if (options.uri.toString() ==
+            'https://otm.onelap.cn/api/otm/ride_record/list') {
           return ResponseBody.fromString(
-            '{"code":200}',
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'list': [
+                  {
+                    'id': 1,
+                    'start_time': '2026-03-29T10:00:00',
+                    'fileKey': 'geo/20260329/filekey.fit',
+                  },
+                ],
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+        if (options.uri.toString() ==
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/1') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'fileKey': 'geo/20260329/filekey.fit'},
+            }),
             200,
             headers: <String, List<String>>{
               Headers.contentTypeHeader: <String>['application/json'],
@@ -444,6 +2193,2138 @@ void main() {
       },
     );
 
+    test(
+      'downloads FIT through the recordId OTM endpoint before trying legacy URLs',
+      () async {
+        final List<String> requests = <String>[];
+        final Map<String, Object?> authHeadersByUrl = <String, Object?>{};
+        final Map<String, ResponseType?> responseTypesByUrl =
+            <String, ResponseType?>{};
+        const String recordId = '93825';
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+          authHeadersByUrl[url] = options.headers['Authorization'];
+          responseTypesByUrl[url] = options.responseType;
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[7, 7, 7],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[1, 2, 3],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-primary-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            recordId: recordId,
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey: 'recordId:93825',
+            sourceFilename: 'demo.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          ),
+        );
+
+        expect(requests, contains('http://example.com/api/login'));
+        expect(requests, contains(recordIdFitContentUrl));
+        expect(
+          requests.where(
+            (String url) =>
+                url == 'http://fits.rfsvr.net/correct.fit?token=abc',
+          ),
+          isEmpty,
+        );
+        expect(authHeadersByUrl[recordIdFitContentUrl], 'otm-token-123');
+        expect(responseTypesByUrl[recordIdFitContentUrl], ResponseType.bytes);
+        expect(await downloaded.readAsBytes(), <int>[7, 7, 7]);
+      },
+    );
+
+    test(
+      'falls back to u.onelap.cn recordId FIT endpoint after otm.onelap.cn returns 500',
+      () async {
+        final List<String> requests = <String>[];
+        final Map<String, Object?> authHeadersByUrl = <String, Object?>{};
+        final Map<String, ResponseType?> responseTypesByUrl =
+            <String, ResponseType?>{};
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/69ea1c54271f399a5f0662c7';
+        const String fallbackRecordIdFitContentUrl =
+            'https://u.onelap.cn/api/otm/ride_record/analysis/fit_content/69ea1c54271f399a5f0662c7';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+          authHeadersByUrl[url] = options.headers['Authorization'];
+          responseTypesByUrl[url] = options.responseType;
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.internalServerError,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == fallbackRecordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[6, 9, 1],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[1, 2, 3],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-host-fallback-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final File downloaded = await client.downloadFit(
+          '',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            recordId: '69ea1c54271f399a5f0662c7',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: '',
+            recordKey: 'recordId:69ea1c54271f399a5f0662c7',
+            sourceFilename: 'demo.fit',
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+          fallbackRecordIdFitContentUrl,
+        ]);
+        expect(authHeadersByUrl[recordIdFitContentUrl], 'otm-token-123');
+        expect(
+          authHeadersByUrl[fallbackRecordIdFitContentUrl],
+          'otm-token-123',
+        );
+        expect(responseTypesByUrl[recordIdFitContentUrl], ResponseType.bytes);
+        expect(
+          responseTypesByUrl[fallbackRecordIdFitContentUrl],
+          ResponseType.bytes,
+        );
+        expect(await downloaded.readAsBytes(), <int>[6, 9, 1]);
+      },
+    );
+
+    test(
+      'falls back to legacy direct download when recordId FIT endpoint fails non-auth',
+      () async {
+        final List<String> requests = <String>[];
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.internalServerError,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[4, 5, 6],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-fallback-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            recordId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey: 'recordId:93825',
+            sourceFilename: 'demo.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[4, 5, 6]);
+      },
+    );
+
+    test(
+      'throws a clear error when the recordId FIT endpoint returns an empty body even if legacy candidates exist',
+      () async {
+        final List<String> requests = <String>[];
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[4, 5, 6],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-empty-fallback-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.downloadFit(
+            'http://fits.rfsvr.net/correct.fit?token=abc',
+            'demo.fit',
+            outputDir,
+            activity: const OneLapActivity(
+              activityId: '93825',
+              recordId: '93825',
+              startTime: '2026-03-31T15:21:16',
+              fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+              recordKey: 'recordId:93825',
+              sourceFilename: 'demo.fit',
+              rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            ),
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains('recordId FIT endpoint returned an empty body'),
+            ),
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+        ]);
+      },
+    );
+
+    test(
+      'does not attempt legacy download when recordId is the only candidate and recordId fetch fails non-auth',
+      () async {
+        final List<String> requests = <String>[];
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+        const String fallbackRecordIdFitContentUrl =
+            'https://u.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.internalServerError,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == fallbackRecordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-only-nolegacy-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.downloadFit(
+            '',
+            'demo.fit',
+            outputDir,
+            activity: const OneLapActivity(
+              activityId: '93825',
+              recordId: '93825',
+              startTime: '2026-03-31T15:21:16',
+              fitUrl: '',
+              recordKey: 'recordId:93825',
+              sourceFilename: 'demo.fit',
+            ),
+          ),
+          throwsA(
+            isA<DioException>().having(
+              (DioException error) => error.response?.statusCode,
+              'statusCode',
+              HttpStatus.internalServerError,
+            ),
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+          fallbackRecordIdFitContentUrl,
+        ]);
+      },
+    );
+
+    test(
+      'includes fallback host diagnostics when recordId-only FIT download fails on both hosts',
+      () async {
+        final List<String> requests = <String>[];
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+        const String fallbackRecordIdFitContentUrl =
+            'https://u.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.internalServerError,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == fallbackRecordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              utf8.encode('missing fallback fit'),
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['text/plain'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-only-diagnostics-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.downloadFit(
+            '',
+            'demo.fit',
+            outputDir,
+            activity: const OneLapActivity(
+              activityId: '93825',
+              recordId: '93825',
+              startTime: '2026-03-31T15:21:16',
+              fitUrl: '',
+              recordKey: 'recordId:93825',
+              sourceFilename: 'demo.fit',
+            ),
+          ),
+          throwsA(
+            isA<DioException>()
+                .having(
+                  (DioException error) => error.response?.statusCode,
+                  'statusCode',
+                  HttpStatus.internalServerError,
+                )
+                .having(
+                  (DioException error) => error.message,
+                  'message',
+                  allOf(
+                    contains('HTTP 500'),
+                    contains(recordIdFitContentUrl),
+                    contains('Fallback host attempt'),
+                    contains(fallbackRecordIdFitContentUrl),
+                    contains('status 404'),
+                    contains('content-type text/plain'),
+                  ),
+                ),
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+          fallbackRecordIdFitContentUrl,
+        ]);
+      },
+    );
+
+    test(
+      'throws a clear error when the recordId FIT endpoint returns an empty body',
+      () async {
+        final List<String> requests = <String>[];
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[9, 9, 9],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-empty-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.downloadFit(
+            '',
+            'demo.fit',
+            outputDir,
+            activity: const OneLapActivity(
+              activityId: '93825',
+              recordId: '93825',
+              startTime: '2026-03-31T15:21:16',
+              fitUrl: '',
+              recordKey: 'recordId:93825',
+              sourceFilename: 'demo.fit',
+            ),
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains('recordId FIT endpoint returned an empty body'),
+            ),
+          ),
+        );
+
+        expect(requests, <String>[
+          'http://example.com/api/login',
+          recordIdFitContentUrl,
+        ]);
+      },
+    );
+
+    test(
+      'throws a clear error when the recordId FIT endpoint returns JSON error content',
+      () async {
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/93825';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'otm-token-123',
+                  'refresh_token': 'otm-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              utf8.encode('{"code":500,"msg":"fit not ready"}'),
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-recordid-json-error-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await expectLater(
+          client.downloadFit(
+            '',
+            'demo.fit',
+            outputDir,
+            activity: const OneLapActivity(
+              activityId: '93825',
+              recordId: '93825',
+              startTime: '2026-03-31T15:21:16',
+              fitUrl: '',
+              recordKey: 'recordId:93825',
+              sourceFilename: 'demo.fit',
+            ),
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'message',
+              contains('recordId FIT endpoint returned an error body'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('retries OTM auth via login when cached token is rejected', () async {
+      final List<String> requests = <String>[];
+      final List<Object?> otmAuthHeaders = <Object?>[];
+      int loginRequests = 0;
+      final String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      final String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+        requests.add(url);
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
+          final String token = loginRequests == 1
+              ? 'stale-token-123'
+              : 'fresh-token-456';
+          final String refreshToken = loginRequests == 1
+              ? 'stale-refresh-123'
+              : 'fresh-refresh-456';
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': token, 'refresh_token': refreshToken},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          otmAuthHeaders.add(options.headers['Authorization']);
+          if (options.headers['Authorization'] == 'stale-token-123') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.unauthorized,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromBytes(
+            <int>[9, 8, 7, 6],
+            HttpStatus.ok,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-otm-relogin-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      final File downloaded = await client.downloadFit(
+        'http://fits.rfsvr.net/correct.fit?token=abc',
+        'demo.fit',
+        outputDir,
+        activity: OneLapActivity(
+          activityId: '93825',
+          startTime: '2026-03-31T15:21:16',
+          fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          recordKey: 'fileKey:$otmFitPath',
+          sourceFilename: 'demo.fit',
+          rawFitUrl: 'geo/20260329/wrong.fit',
+          rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          rawFileKey: otmFitPath,
+        ),
+      );
+
+      expect(loginRequests, 2);
+      expect(otmAuthHeaders, <Object?>['stale-token-123', 'fresh-token-456']);
+      expect(await downloaded.readAsBytes(), <int>[9, 8, 7, 6]);
+    });
+
+    test(
+      'refreshes OneLap auth token after a 403 response and retries once',
+      () async {
+        final List<String> requests = <String>[];
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        final List<String> refreshRequestBodies = <String>[];
+        int loginRequests = 0;
+        int refreshRequests = 0;
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'stale-token-123',
+                  'refresh_token': 'stale-refresh-123',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/api/token') {
+            refreshRequests++;
+            refreshRequestBodies.add(jsonEncode(options.data));
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'refreshed-token-456',
+                  'refresh_token': 'refreshed-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            if (otmAuthHeaders.length == 1) {
+              return ResponseBody.fromBytes(
+                <int>[],
+                HttpStatus.forbidden,
+                headers: <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[
+                    'application/octet-stream',
+                  ],
+                },
+              );
+            }
+
+            return ResponseBody.fromBytes(
+              <int>[3, 4, 5, 6],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-otm-refresh-403-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 1);
+        expect(refreshRequests, 1);
+        expect(refreshRequestBodies, <String>[
+          '{"token":"stale-refresh-123","from":"web","to":"web"}',
+        ]);
+        expect(otmAuthHeaders, <Object?>[
+          'stale-token-123',
+          'refreshed-token-456',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[3, 4, 5, 6]);
+      },
+    );
+
+    test(
+      'refreshes OneLap auth token after a 401 response and retries once',
+      () async {
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        final List<String> refreshRequestBodies = <String>[];
+        int loginRequests = 0;
+        int refreshRequests = 0;
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'stale-token-123',
+                  'refresh_token': 'stale-refresh-123',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/api/token') {
+            refreshRequests++;
+            refreshRequestBodies.add(jsonEncode(options.data));
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'refreshed-token-456',
+                  'refresh_token': 'refreshed-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            if (otmAuthHeaders.length == 1) {
+              return ResponseBody.fromBytes(
+                <int>[],
+                HttpStatus.unauthorized,
+                headers: <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[
+                    'application/octet-stream',
+                  ],
+                },
+              );
+            }
+
+            return ResponseBody.fromBytes(
+              <int>[4, 4, 5, 5],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-otm-refresh-401-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 1);
+        expect(refreshRequests, 1);
+        expect(refreshRequestBodies, <String>[
+          '{"token":"stale-refresh-123","from":"web","to":"web"}',
+        ]);
+        expect(otmAuthHeaders, <Object?>[
+          'stale-token-123',
+          'refreshed-token-456',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[4, 4, 5, 5]);
+      },
+    );
+
+    test('surfaces non-auth OTM failures without refresh or re-login', () async {
+      final List<Object?> otmAuthHeaders = <Object?>[];
+      int loginRequests = 0;
+      int refreshRequests = 0;
+      const String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      const String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'token': 'stale-token-123',
+                'refresh_token': 'stale-refresh-123',
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://example.com/api/token') {
+          refreshRequests++;
+          return ResponseBody.fromString('unexpected refresh', 500);
+        }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          otmAuthHeaders.add(options.headers['Authorization']);
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.unprocessableEntity,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-otm-non-auth-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      await expectLater(
+        client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        ),
+        throwsA(
+          isA<DioException>().having(
+            (DioException error) => error.response?.statusCode,
+            'statusCode',
+            HttpStatus.unprocessableEntity,
+          ),
+        ),
+      );
+
+      expect(loginRequests, 1);
+      expect(refreshRequests, 0);
+      expect(otmAuthHeaders, <Object?>['stale-token-123']);
+    });
+
+    test(
+      're-logs in when refresh returns non-200 HTTP status despite a valid payload',
+      () async {
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        int loginRequests = 0;
+        int refreshRequests = 0;
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            final String token = loginRequests == 1
+                ? 'stale-token-123'
+                : 'relogin-token-789';
+            final String refreshToken = loginRequests == 1
+                ? 'stale-refresh-123'
+                : 'relogin-refresh-789';
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {'token': token, 'refresh_token': refreshToken},
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/api/token') {
+            refreshRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'refreshed-token-456',
+                  'refresh_token': 'refreshed-refresh-456',
+                },
+              }),
+              201,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            if (options.headers['Authorization'] != 'relogin-token-789') {
+              return ResponseBody.fromBytes(
+                <int>[],
+                HttpStatus.forbidden,
+                headers: <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[
+                    'application/octet-stream',
+                  ],
+                },
+              );
+            }
+
+            return ResponseBody.fromBytes(
+              <int>[6, 5, 4, 3],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-otm-refresh-http-201-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 2);
+        expect(refreshRequests, 1);
+        expect(otmAuthHeaders, <Object?>[
+          'stale-token-123',
+          'relogin-token-789',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[6, 5, 4, 3]);
+      },
+    );
+
+    test('re-logs in when refresh returns non-200 top-level code', () async {
+      final List<Object?> otmAuthHeaders = <Object?>[];
+      int loginRequests = 0;
+      int refreshRequests = 0;
+      const String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      const String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
+          final String token = loginRequests == 1
+              ? 'stale-token-123'
+              : 'relogin-token-789';
+          final String refreshToken = loginRequests == 1
+              ? 'stale-refresh-123'
+              : 'relogin-refresh-789';
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': token, 'refresh_token': refreshToken},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://example.com/api/token') {
+          refreshRequests++;
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 500,
+              'data': {
+                'token': 'refreshed-token-456',
+                'refresh_token': 'refreshed-refresh-456',
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          otmAuthHeaders.add(options.headers['Authorization']);
+          if (options.headers['Authorization'] != 'relogin-token-789') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.forbidden,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromBytes(
+            <int>[7, 6, 5, 4],
+            HttpStatus.ok,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-otm-refresh-code-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      final File downloaded = await client.downloadFit(
+        'http://fits.rfsvr.net/correct.fit?token=abc',
+        'demo.fit',
+        outputDir,
+        activity: const OneLapActivity(
+          activityId: '93825',
+          startTime: '2026-03-31T15:21:16',
+          fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          recordKey:
+              'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+          sourceFilename: 'demo.fit',
+          rawFitUrl: 'geo/20260329/wrong.fit',
+          rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          rawFileKey: otmFitPath,
+        ),
+      );
+
+      expect(loginRequests, 2);
+      expect(refreshRequests, 1);
+      expect(otmAuthHeaders, <Object?>['stale-token-123', 'relogin-token-789']);
+      expect(await downloaded.readAsBytes(), <int>[7, 6, 5, 4]);
+    });
+
+    test('re-logs in when refresh returns an empty token', () async {
+      final List<Object?> otmAuthHeaders = <Object?>[];
+      int loginRequests = 0;
+      int refreshRequests = 0;
+      const String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      const String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
+          final String token = loginRequests == 1
+              ? 'stale-token-123'
+              : 'relogin-token-789';
+          final String refreshToken = loginRequests == 1
+              ? 'stale-refresh-123'
+              : 'relogin-refresh-789';
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': token, 'refresh_token': refreshToken},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://example.com/api/token') {
+          refreshRequests++;
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': '', 'refresh_token': 'refreshed-refresh-456'},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          otmAuthHeaders.add(options.headers['Authorization']);
+          if (options.headers['Authorization'] != 'relogin-token-789') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.forbidden,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromBytes(
+            <int>[3, 3, 2, 2],
+            HttpStatus.ok,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-otm-refresh-empty-token-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      final File downloaded = await client.downloadFit(
+        'http://fits.rfsvr.net/correct.fit?token=abc',
+        'demo.fit',
+        outputDir,
+        activity: const OneLapActivity(
+          activityId: '93825',
+          startTime: '2026-03-31T15:21:16',
+          fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          recordKey:
+              'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+          sourceFilename: 'demo.fit',
+          rawFitUrl: 'geo/20260329/wrong.fit',
+          rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          rawFileKey: otmFitPath,
+        ),
+      );
+
+      expect(loginRequests, 2);
+      expect(refreshRequests, 1);
+      expect(otmAuthHeaders, <Object?>['stale-token-123', 'relogin-token-789']);
+      expect(await downloaded.readAsBytes(), <int>[3, 3, 2, 2]);
+    });
+
+    test('re-logs in when refresh omits token', () async {
+      final List<Object?> otmAuthHeaders = <Object?>[];
+      int loginRequests = 0;
+      int refreshRequests = 0;
+      const String otmFitPath =
+          'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+      const String otmFitContentUrl =
+          'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+          'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          loginRequests++;
+          final String token = loginRequests == 1
+              ? 'stale-token-123'
+              : 'relogin-token-789';
+          final String refreshToken = loginRequests == 1
+              ? 'stale-refresh-123'
+              : 'relogin-refresh-789';
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': token, 'refresh_token': refreshToken},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://example.com/api/token') {
+          refreshRequests++;
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'refresh_token': 'refreshed-refresh-456'},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+            url == 'http://example.com/geo/20260329/wrong.fit' ||
+            url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+            url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+          return ResponseBody.fromBytes(
+            <int>[],
+            HttpStatus.notFound,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        if (url == otmFitContentUrl) {
+          otmAuthHeaders.add(options.headers['Authorization']);
+          if (options.headers['Authorization'] != 'relogin-token-789') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.forbidden,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromBytes(
+            <int>[2, 2, 1, 1],
+            HttpStatus.ok,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/octet-stream'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+      final Directory outputDir = await Directory.systemTemp.createTemp(
+        'onelap-client-otm-refresh-missing-token-',
+      );
+
+      addTearDown(() async {
+        if (await outputDir.exists()) {
+          await outputDir.delete(recursive: true);
+        }
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      await client.login();
+
+      final File downloaded = await client.downloadFit(
+        'http://fits.rfsvr.net/correct.fit?token=abc',
+        'demo.fit',
+        outputDir,
+        activity: const OneLapActivity(
+          activityId: '93825',
+          startTime: '2026-03-31T15:21:16',
+          fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          recordKey:
+              'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+          sourceFilename: 'demo.fit',
+          rawFitUrl: 'geo/20260329/wrong.fit',
+          rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+          rawFileKey: otmFitPath,
+        ),
+      );
+
+      expect(loginRequests, 2);
+      expect(refreshRequests, 1);
+      expect(otmAuthHeaders, <Object?>['stale-token-123', 'relogin-token-789']);
+      expect(await downloaded.readAsBytes(), <int>[2, 2, 1, 1]);
+    });
+
+    test(
+      'retains the previous refresh token when OneLap refresh does not return a new one',
+      () async {
+        final List<String> refreshRequestBodies = <String>[];
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        int loginRequests = 0;
+        int refreshRequests = 0;
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'stale-token-123',
+                  'refresh_token': 'stale-refresh-123',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/api/token') {
+            refreshRequests++;
+            refreshRequestBodies.add(jsonEncode(options.data));
+            final String token = refreshRequests == 1
+                ? 'refreshed-token-456'
+                : 'refreshed-token-789';
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {'token': token},
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            if (otmAuthHeaders.length == 1 || otmAuthHeaders.length == 3) {
+              return ResponseBody.fromBytes(
+                <int>[],
+                HttpStatus.forbidden,
+                headers: <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[
+                    'application/octet-stream',
+                  ],
+                },
+              );
+            }
+
+            return ResponseBody.fromBytes(
+              <int>[7, 7, 8, 8],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-otm-refresh-retain-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo-1.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo-1.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo-2.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo-2.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 1);
+        expect(refreshRequests, 2);
+        expect(refreshRequestBodies, <String>[
+          '{"token":"stale-refresh-123","from":"web","to":"web"}',
+          '{"token":"stale-refresh-123","from":"web","to":"web"}',
+        ]);
+        expect(otmAuthHeaders, <Object?>[
+          'stale-token-123',
+          'refreshed-token-456',
+          'refreshed-token-456',
+          'refreshed-token-789',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[7, 7, 8, 8]);
+      },
+    );
+
+    test(
+      're-logs in once when token refresh cannot recover an authenticated request',
+      () async {
+        final List<Object?> otmAuthHeaders = <Object?>[];
+        final List<String> refreshRequestBodies = <String>[];
+        int loginRequests = 0;
+        int refreshRequests = 0;
+        const String otmFitPath =
+            'geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit';
+        const String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            'Z2VvLzIwMjYwMzMxL01hZ2VuZV9DNTA2XzE3NzQ5NDE2NzZfOTM4MjVfMTc3NDk0MjU3MDU1MC5maXQ=';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+
+          if (url == 'http://example.com/api/login') {
+            loginRequests++;
+            final String token = loginRequests == 1
+                ? 'stale-token-123'
+                : 'relogin-token-789';
+            final String refreshToken = loginRequests == 1
+                ? 'stale-refresh-123'
+                : 'relogin-refresh-789';
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {'token': token, 'refresh_token': refreshToken},
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/api/token') {
+            refreshRequests++;
+            refreshRequestBodies.add(jsonEncode(options.data));
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'token': 'refreshed-token-456',
+                  'refresh_token': 'refreshed-refresh-456',
+                },
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/correct.fit?token=abc' ||
+              url == 'http://example.com/geo/20260329/wrong.fit' ||
+              url == 'http://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://u.onelap.cn/geo/20260329/wrong.fit' ||
+              url == 'https://www.onelap.cn/geo/20260329/wrong.fit') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            otmAuthHeaders.add(options.headers['Authorization']);
+            if (options.headers['Authorization'] != 'relogin-token-789') {
+              return ResponseBody.fromBytes(
+                <int>[],
+                HttpStatus.forbidden,
+                headers: <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[
+                    'application/octet-stream',
+                  ],
+                },
+              );
+            }
+
+            return ResponseBody.fromBytes(
+              <int>[8, 7, 6, 5],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-otm-refresh-relogin-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        await client.login();
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/correct.fit?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '93825',
+            startTime: '2026-03-31T15:21:16',
+            fitUrl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            recordKey:
+                'fileKey:geo/20260331/Magene_C506_1774941676_93825_1774942570550.fit',
+            sourceFilename: 'demo.fit',
+            rawFitUrl: 'geo/20260329/wrong.fit',
+            rawDurl: 'http://fits.rfsvr.net/correct.fit?token=abc',
+            rawFileKey: otmFitPath,
+          ),
+        );
+
+        expect(loginRequests, 2);
+        expect(refreshRequests, 1);
+        expect(refreshRequestBodies, <String>[
+          '{"token":"stale-refresh-123","from":"web","to":"web"}',
+        ]);
+        expect(otmAuthHeaders, <Object?>[
+          'stale-token-123',
+          'refreshed-token-456',
+          'relogin-token-789',
+        ]);
+        expect(await downloaded.readAsBytes(), <int>[8, 7, 6, 5]);
+      },
+    );
+
     test('uses absolute geo URL path for OTM fit content fallback', () async {
       final List<String> requests = <String>[];
       const String absoluteGeoUrl =
@@ -463,7 +4344,7 @@ void main() {
             jsonEncode({
               'code': 200,
               'data': [
-                {'token': 'otm-token-123'},
+                {'token': 'otm-token-123', 'refresh_token': 'otm-refresh-456'},
               ],
             }),
             200,
@@ -549,7 +4430,10 @@ void main() {
               jsonEncode({
                 'code': 200,
                 'data': [
-                  {'token': 'otm-token-123'},
+                  {
+                    'token': 'otm-token-123',
+                    'refresh_token': 'otm-refresh-456',
+                  },
                 ],
               }),
               200,
