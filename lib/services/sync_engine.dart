@@ -24,13 +24,13 @@ class SyncEngine {
   SyncEngine({
     required this.oneLapClient,
     required this.stravaClient,
-    XingzheClient? xingzheClient,
+    this.xingzheClient,
     required this.stateStore,
     this.gcjCorrectionEnabled = false,
     this.rewriteService,
     this.uploadToStrava = true,
     this.uploadToXingzhe = false,
-  }) : xingzheClient = xingzheClient;
+  });
 
   Future<SyncSummary> runOnce({
     DateTime? sinceDate,
@@ -287,7 +287,7 @@ class SyncEngine {
       // ---- upload to Strava ----
       if (uploadToStrava && stravaClient != null) {
         final skipStrava = await stateStore.isAlreadyUploaded(
-          currentFingerprint!,
+          currentFingerprint,
           'strava',
         );
         if (skipStrava) {
@@ -310,7 +310,7 @@ class SyncEngine {
               final errorStr = '$error'.toLowerCase();
               if (errorStr.contains('duplicate of')) {
                 await stateStore.markPlatformSynced(
-                  currentFingerprint!,
+                  currentFingerprint,
                   'strava',
                   null,
                 );
@@ -335,7 +335,7 @@ class SyncEngine {
                 stravaFailed++;
                 stravaFailures.add(
                   failSummary(
-                    currentFingerprint!,
+                    currentFingerprint,
                     item.startTime,
                     sessionMeta,
                     error,
@@ -348,7 +348,7 @@ class SyncEngine {
             } else {
               final aid = (activityId as num).toInt();
               await stateStore.markPlatformSynced(
-                currentFingerprint!,
+                currentFingerprint,
                 'strava',
                 aid,
               );
@@ -366,7 +366,7 @@ class SyncEngine {
           } catch (e) {
             if (_isIdempotentSuccess(e)) {
               await stateStore.markPlatformSynced(
-                currentFingerprint!,
+                currentFingerprint,
                 'strava',
                 null,
               );
@@ -392,7 +392,7 @@ class SyncEngine {
               stravaFailed++;
               stravaFailures.add(
                 failSummary(
-                  currentFingerprint!,
+                  currentFingerprint,
                   item.startTime,
                   sessionMeta,
                   '$e',
@@ -414,7 +414,7 @@ class SyncEngine {
           stravaFailed++;
           stravaFailures.add(
             failSummary(
-              currentFingerprint!,
+              currentFingerprint,
               item.startTime,
               sessionMeta,
               '坐标转换失败',
@@ -426,7 +426,7 @@ class SyncEngine {
       // ---- upload to Xingzhe ----
       if (uploadToXingzhe && xingzheClient != null) {
         final skipXingzhe = await stateStore.isAlreadyUploaded(
-          currentFingerprint!,
+          currentFingerprint,
           'xingzhe',
         );
         if (skipXingzhe) {
@@ -460,7 +460,7 @@ class SyncEngine {
                 xingzheFailed++;
                 xingzheFailures.add(
                   failSummary(
-                    currentFingerprint!,
+                    currentFingerprint,
                     item.startTime,
                     sessionMeta,
                     error ?? '',
@@ -469,7 +469,7 @@ class SyncEngine {
                 failureReasons.add('行者 上传失败 (${item.sourceFilename}): $error');
               } else {
                 await stateStore.markPlatformSynced(
-                  currentFingerprint!,
+                  currentFingerprint,
                   'xingzhe',
                   null,
                 );
@@ -488,7 +488,7 @@ class SyncEngine {
                   ? activityId
                   : int.tryParse('$activityId') ?? 0;
               await stateStore.markPlatformSynced(
-                currentFingerprint!,
+                currentFingerprint,
                 'xingzhe',
                 aid,
               );
@@ -506,7 +506,7 @@ class SyncEngine {
           } catch (e) {
             if (_isIdempotentSuccess(e)) {
               await stateStore.markPlatformSynced(
-                currentFingerprint!,
+                currentFingerprint,
                 'xingzhe',
                 null,
               );
@@ -532,7 +532,7 @@ class SyncEngine {
               xingzheFailed++;
               xingzheFailures.add(
                 failSummary(
-                  currentFingerprint!,
+                  currentFingerprint,
                   item.startTime,
                   sessionMeta,
                   '$e',
@@ -554,7 +554,7 @@ class SyncEngine {
           xingzheFailed++;
           xingzheFailures.add(
             failSummary(
-              currentFingerprint!,
+              currentFingerprint,
               item.startTime,
               sessionMeta,
               '坐标转换失败',
@@ -567,7 +567,7 @@ class SyncEngine {
       if (platformsUploaded > 0) {
         success++;
         // 成功后保存 dedupeKey（稳定 key，兜底后续指纹变化情况）
-        await stateStore.markDedupeKey(dedupeKey, currentFingerprint!);
+        await stateStore.markDedupeKey(dedupeKey, currentFingerprint);
       }
       if (platformsFailed > 0 && platformsUploaded == 0) {
         failed++;
@@ -576,7 +576,7 @@ class SyncEngine {
       // ---- 7. 保存记录 ----
       syncRecords.add(
         SyncRecord(
-          fingerprint: currentFingerprint!,
+          fingerprint: currentFingerprint,
           sourceFilename: item.sourceFilename,
           startTime: item.startTime,
           syncedAt: DateTime.now(),
@@ -642,8 +642,9 @@ class SyncEngine {
         s.contains('duplicate') ||
         s.contains('dedupe') ||
         s.contains('already exists') ||
-        s.contains('duplicate of'))
+        s.contains('duplicate of')) {
       return true;
+    }
     return false;
   }
 

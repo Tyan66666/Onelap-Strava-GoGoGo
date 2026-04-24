@@ -38,7 +38,7 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
     try {
       final records = await _stateStore.loadSyncRecords(
         from: _fromDate,
-        to: _toDate != null ? _toDate!.add(const Duration(days: 1)) : null,
+        to: _toDate?.add(const Duration(days: 1)),
         limit: 200,
       );
       if (!mounted) return;
@@ -96,10 +96,12 @@ class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
 
       // Status filter — show record if any matching platform result qualifies
       final matchingResults = record.platformResults.where((r) {
-        if (r.platform == SyncPlatform.strava && !record.uploadedToStrava)
+        if (r.platform == SyncPlatform.strava && !record.uploadedToStrava) {
           return false;
-        if (r.platform == SyncPlatform.xingzhe && !record.uploadedToXingzhe)
+        }
+        if (r.platform == SyncPlatform.xingzhe && !record.uploadedToXingzhe) {
           return false;
+        }
         if (r.status == SyncStatus.success && !_showSuccess) return false;
         if (r.status == SyncStatus.failed && !_showFailed) return false;
         if (r.status == SyncStatus.deduped && !_showDeduped) return false;

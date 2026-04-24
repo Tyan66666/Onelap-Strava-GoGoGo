@@ -108,10 +108,8 @@ class _FakeStateStore extends StateStore {
 }
 
 class _FakeXingzheClient extends XingzheClient {
-  _FakeXingzheClient({this.uploadError = 'bad password'})
+  _FakeXingzheClient()
     : super(username: 'xingzhe-user', password: 'xingzhe-pass');
-
-  final String uploadError;
 
   @override
   Future<int> uploadFit(File fitFile, {int retries = 3}) async {
@@ -123,7 +121,7 @@ class _FakeXingzheClient extends XingzheClient {
     int uploadId, {
     int maxAttempts = 10,
   }) async {
-    return <String, dynamic>{'activity_id': 0, 'error': uploadError};
+    return <String, dynamic>{'activity_id': 0, 'error': 'bad password'};
   }
 }
 
