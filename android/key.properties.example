@@ -1,0 +1,4 @@
+storeFile=app/upload-keystore.jks
+storePassword=REPLACE_WITH_STORE_PASSWORD
+keyAlias=onelaprelease
+keyPassword=REPLACE_WITH_KEY_PASSWORD
