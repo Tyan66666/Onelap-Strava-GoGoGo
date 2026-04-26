@@ -1,7 +1,12 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 abstract class SettingsStore {
   Future<Map<String, String>> readAll();
+
+  Future<String?> read({required String key});
 
   Future<void> write({required String key, required String value});
 }
@@ -9,11 +14,18 @@ abstract class SettingsStore {
 class SecureSettingsStore implements SettingsStore {
   const SecureSettingsStore();
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = FlutterSecureStorage(
+    mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+  );
 
   @override
   Future<Map<String, String>> readAll() {
     return _storage.readAll();
+  }
+
+  @override
+  Future<String?> read({required String key}) {
+    return _storage.read(key: key);
   }
 
   @override
@@ -61,7 +73,18 @@ class SettingsService {
   ];
 
   Future<Map<String, String>> loadSettings() async {
-    final storedValues = await _store.readAll();
+    Map<String, String> storedValues;
+    try {
+      storedValues = await _store.readAll();
+    } on PlatformException {
+      if (!Platform.isMacOS) {
+        rethrow;
+      }
+      storedValues = <String, String>{
+        for (final String key in allKeys) key: (await _store.read(key: key)) ?? '',
+      };
+    }
+
     return <String, String>{
       for (final key in allKeys) key: storedValues[key] ?? '',
     };

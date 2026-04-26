@@ -18,6 +18,11 @@ class InMemorySettingsStore implements SettingsStore {
   }
 
   @override
+  Future<String?> read({required String key}) async {
+    return _values[key];
+  }
+
+  @override
   Future<void> write({required String key, required String value}) async {
     _values[key] = value;
   }
