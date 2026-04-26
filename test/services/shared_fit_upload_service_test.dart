@@ -14,7 +14,7 @@ class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
   File? receivedFile;
 
   @override
-  Future<File> rewrite(File inputFile) async {
+  Future<File> rewrite(File inputFile, {RewriteOptions? options}) async {
     receivedFile = inputFile;
     if (error != null) {
       throw error!;

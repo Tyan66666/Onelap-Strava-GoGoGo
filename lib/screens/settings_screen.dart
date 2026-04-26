@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/onelap_client.dart';
 import '../services/settings_service.dart';
+import '../services/xingzhe_client.dart';
 import 'strava_auth_screen.dart';
 
 typedef AuthorizeStravaCallback =
@@ -31,10 +32,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _controllers = <String, TextEditingController>{};
   bool _loading = true;
   bool _savingOneLapCredentials = false;
+  bool _savingXingzheCredentials = false;
   bool _gcjCorrectionEnabled = false;
   bool _savingGcjCorrectionEnabled = false;
   bool? _pendingGcjCorrectionEnabled;
   bool _confirmedGcjCorrectionEnabled = false;
+  bool _uploadToStrava = true;
+  bool _uploadToXingzhe = false;
+  bool _savingUploadSettings = false;
 
   static const _controllerKeys = [
     SettingsService.keyOneLapUsername,
@@ -44,12 +49,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     SettingsService.keyStravaRefreshToken,
     SettingsService.keyStravaAccessToken,
     SettingsService.keyStravaExpiresAt,
+    SettingsService.keyXingzheUsername,
+    SettingsService.keyXingzhePassword,
     SettingsService.keyLookbackDays,
   ];
 
   static const _obscured = {
     SettingsService.keyOneLapPassword,
     SettingsService.keyStravaClientSecret,
+    SettingsService.keyXingzhePassword,
   };
 
   static const _labels = {
@@ -60,6 +68,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     SettingsService.keyStravaRefreshToken: 'Strava Refresh Token',
     SettingsService.keyStravaAccessToken: 'Strava Access Token',
     SettingsService.keyStravaExpiresAt: 'Strava Expires At (Unix timestamp)',
+    SettingsService.keyXingzheUsername: '行者 用户名',
+    SettingsService.keyXingzhePassword: '行者 密码',
     SettingsService.keyLookbackDays: '同步最近几天（默认 3）',
   };
 
@@ -87,6 +97,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _gcjCorrectionEnabled =
           values[SettingsService.keyGcjCorrectionEnabled] == 'true';
       _confirmedGcjCorrectionEnabled = _gcjCorrectionEnabled;
+      _uploadToStrava = values[SettingsService.keyUploadToStrava] != 'false';
+      _uploadToXingzhe = values[SettingsService.keyUploadToXingzhe] == 'true';
       _loading = false;
     });
   }
@@ -101,6 +113,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       for (final key in _controllerKeys) key: _controllers[key]!.text.trim(),
       SettingsService.keyLookbackDays: lookbackDays,
       SettingsService.keyGcjCorrectionEnabled: _gcjCorrectionEnabled.toString(),
+      SettingsService.keyUploadToStrava: _uploadToStrava.toString(),
+      SettingsService.keyUploadToXingzhe: _uploadToXingzhe.toString(),
     };
     try {
       await _settingsService.saveSettings(values);
@@ -158,6 +172,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('OneLap 账号已保存')));
+    }
+  }
+
+  Future<void> _saveXingzheCredentials({bool validateAfterSave = false}) async {
+    _dismissKeyboard();
+
+    final Map<String, String> values = {
+      SettingsService.keyXingzheUsername:
+          _controllers[SettingsService.keyXingzheUsername]!.text.trim(),
+      SettingsService.keyXingzhePassword:
+          _controllers[SettingsService.keyXingzhePassword]!.text.trim(),
+    };
+    if (validateAfterSave) {
+      if (mounted) {
+        setState(() => _savingXingzheCredentials = true);
+      }
+      try {
+        final bool success = await _validateXingzheLogin(
+          username: values[SettingsService.keyXingzheUsername]!,
+          password: values[SettingsService.keyXingzhePassword]!,
+          persistValues: values,
+          showSuccessMessage: false,
+        );
+        if (success && mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('行者账号已保存')));
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _savingXingzheCredentials = false);
+        }
+      }
+      return;
+    }
+    await _settingsService.saveSettings(values);
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('行者账号已保存')));
     }
   }
 
@@ -221,6 +275,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('OneLap 登录验证成功')));
+    }
+    return true;
+  }
+
+  Future<bool> _validateXingzheLogin({
+    String? username,
+    String? password,
+    Map<String, String>? persistValues,
+    bool showSuccessMessage = true,
+  }) async {
+    final effectiveUsername =
+        username ??
+        _controllers[SettingsService.keyXingzheUsername]!.text.trim();
+    final effectivePassword =
+        password ??
+        _controllers[SettingsService.keyXingzhePassword]!.text.trim();
+
+    if (effectiveUsername.isEmpty || effectivePassword.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('请先填写行者用户名和密码')));
+      }
+      return false;
+    }
+
+    try {
+      await XingzheClient.login(
+        username: effectiveUsername,
+        password: effectivePassword,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('行者登录验证失败: $e')));
+      }
+      return false;
+    }
+
+    if (persistValues != null) {
+      try {
+        await _settingsService.saveSettings(persistValues);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+        }
+        return false;
+      }
+    }
+
+    if (mounted && showSuccessMessage) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('行者登录验证成功')));
     }
     return true;
   }
@@ -298,6 +409,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       valueToPersist = pendingValue;
     }
+  }
+
+  Future<void> _saveUploadSettings() async {
+    _dismissKeyboard();
+
+    if (!_uploadToStrava && !_uploadToXingzhe) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('至少需要选择一个上传平台')));
+      }
+      return;
+    }
+
+    _savingUploadSettings = true;
+    try {
+      await _settingsService.saveSettings({
+        SettingsService.keyUploadToStrava: _uploadToStrava.toString(),
+        SettingsService.keyUploadToXingzhe: _uploadToXingzhe.toString(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('上传设置已保存')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+      }
+    } finally {
+      _savingUploadSettings = false;
+    }
+  }
+
+  void _toggleUploadToStrava(bool value) {
+    setState(() => _uploadToStrava = value);
+  }
+
+  void _toggleUploadToXingzhe(bool value) {
+    setState(() => _uploadToXingzhe = value);
   }
 
   void _dismissKeyboard() {
@@ -520,6 +673,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           const Text(
+            '上传设置',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('上传到 Strava'),
+            value: _uploadToStrava,
+            onChanged: _toggleUploadToStrava,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('上传到 行者'),
+            value: _uploadToXingzhe,
+            onChanged: _toggleUploadToXingzhe,
+          ),
+          ElevatedButton(
+            onPressed: _saveUploadSettings,
+            child: _savingUploadSettings
+                ? const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text('保存中...'),
+                    ],
+                  )
+                : const Text('保存上传设置'),
+          ),
+          const SizedBox(height: 16),
+          const Text(
             'Strava 凭证',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
@@ -563,6 +751,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+          const SizedBox(height: 16),
+          const Text(
+            '行者 凭证',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          for (final key in [
+            SettingsService.keyXingzheUsername,
+            SettingsService.keyXingzhePassword,
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: _controllers[key],
+                obscureText: _obscured.contains(key),
+                decoration: InputDecoration(
+                  labelText: _labels[key],
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _savingXingzheCredentials
+                      ? null
+                      : () => _saveXingzheCredentials(validateAfterSave: true),
+                  child: _savingXingzheCredentials
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text('登录中...'),
+                          ],
+                        )
+                      : const Text('登录 行者'),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 8),
           ElevatedButton(onPressed: _save, child: const Text('保存')),
         ],

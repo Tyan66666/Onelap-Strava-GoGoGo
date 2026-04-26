@@ -116,6 +116,37 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Restore Android release signing
+        shell: bash
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_STORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for var_name in \
+            ANDROID_UPLOAD_KEYSTORE_BASE64 \
+            ANDROID_UPLOAD_STORE_PASSWORD \
+            ANDROID_UPLOAD_KEY_ALIAS \
+            ANDROID_UPLOAD_KEY_PASSWORD; do
+            if [[ -z "${!var_name}" ]]; then
+              echo "Missing required Android signing secret: $var_name" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p android/app
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+
+          cat > android/key.properties <<EOF
+          storeFile=app/upload-keystore.jks
+          storePassword=$ANDROID_UPLOAD_STORE_PASSWORD
+          keyAlias=$ANDROID_UPLOAD_KEY_ALIAS
+          keyPassword=$ANDROID_UPLOAD_KEY_PASSWORD
+          EOF
+
       - name: Build release APK
         shell: bash
         env:
@@ -145,6 +176,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:

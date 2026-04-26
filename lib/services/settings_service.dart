@@ -35,8 +35,13 @@ class SettingsService {
   static const keyStravaRefreshToken = 'STRAVA_REFRESH_TOKEN';
   static const keyStravaAccessToken = 'STRAVA_ACCESS_TOKEN';
   static const keyStravaExpiresAt = 'STRAVA_EXPIRES_AT';
+  static const keyXingzheUsername = 'XINGZHE_USERNAME';
+  static const keyXingzhePassword = 'XINGZHE_PASSWORD';
+  static const keyXingzheSessionId = 'XINGZHE_SESSION_ID';
   static const keyLookbackDays = 'LOOKBACK_DAYS';
   static const keyGcjCorrectionEnabled = 'GCJ_CORRECTION_ENABLED';
+  static const keyUploadToStrava = 'UPLOAD_TO_STRAVA';
+  static const keyUploadToXingzhe = 'UPLOAD_TO_XINGZHE';
 
   static const allKeys = [
     keyOneLapUsername,
@@ -46,8 +51,13 @@ class SettingsService {
     keyStravaRefreshToken,
     keyStravaAccessToken,
     keyStravaExpiresAt,
+    keyXingzheUsername,
+    keyXingzhePassword,
+    keyXingzheSessionId,
     keyLookbackDays,
     keyGcjCorrectionEnabled,
+    keyUploadToStrava,
+    keyUploadToXingzhe,
   ];
 
   Future<Map<String, String>> loadSettings() async {
