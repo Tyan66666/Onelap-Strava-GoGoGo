@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+._*
 .atom/
 .build/
 .buildlog/
@@ -33,6 +34,8 @@ migrate_working_dir/
 /build/
 /coverage/
 .worktrees/
+*.app/
+*-unsigned.zip
 
 # Symbolication related
 app.*.symbols
