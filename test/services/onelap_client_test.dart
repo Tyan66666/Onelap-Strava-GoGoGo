@@ -32,6 +32,11 @@ class _DownloadRoute {
   final List<int>? bytes;
 }
 
+List<int> _validFitBytes(List<int> payload) {
+  final header = <int>[0x0E, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2E, 0x46, 0x49, 0x54, 0x00, 0x00];
+  return [...header, ...payload];
+}
+
 void main() {
   group('OneLapActivity', () {
     test(
@@ -1898,7 +1903,7 @@ void main() {
         ),
         'http://example.com/geo/20260329/wrong.fit': _DownloadRoute(
           statusCode: HttpStatus.ok,
-          bytes: <int>[9, 8, 7],
+          bytes: _validFitBytes([9, 8, 7]),
         ),
       };
       final Dio dio = Dio();
@@ -1952,7 +1957,7 @@ void main() {
         'http://fits.rfsvr.net/correct.fit?token=abc',
         'http://example.com/geo/20260329/wrong.fit',
       ]);
-      expect(await downloaded.readAsBytes(), <int>[9, 8, 7]);
+      expect(await downloaded.readAsBytes(), _validFitBytes([9, 8, 7]));
     });
 
     test(
@@ -1977,7 +1982,7 @@ void main() {
           ),
           'http://example.com/geo/20260329/filekey.fit': _DownloadRoute(
             statusCode: HttpStatus.ok,
-            bytes: <int>[1, 2, 3],
+            bytes: _validFitBytes([1, 2, 3]),
           ),
         };
         final Dio dio = Dio();
@@ -2031,7 +2036,7 @@ void main() {
           requests,
           contains('http://example.com/geo/20260329/filekey.fit'),
         );
-        expect(await downloaded.readAsBytes(), <int>[1, 2, 3]);
+        expect(await downloaded.readAsBytes(), _validFitBytes([1, 2, 3]));
       },
     );
 
@@ -2055,7 +2060,7 @@ void main() {
           await request.response.close();
         });
 
-        const List<int> expectedBytes = <int>[1, 2, 3, 4, 5];
+        final List<int> expectedBytes = _validFitBytes(<int>[1, 2, 3, 4, 5]);
         fallbackServer.listen((HttpRequest request) async {
           request.response.statusCode = HttpStatus.ok;
           request.response.add(expectedBytes);
@@ -2143,7 +2148,7 @@ void main() {
 
           if (url == otmFitContentUrl) {
             return ResponseBody.fromBytes(
-              <int>[4, 5, 6, 7],
+              _validFitBytes(<int>[4, 5, 6, 7]),
               HttpStatus.ok,
               headers: <String, List<String>>{
                 Headers.contentTypeHeader: <String>['application/octet-stream'],
@@ -2189,7 +2194,7 @@ void main() {
         expect(requests, contains('http://example.com/api/login'));
         expect(requests, contains(otmFitContentUrl));
         expect(authHeadersByUrl[otmFitContentUrl], 'otm-token-123');
-        expect(await downloaded.readAsBytes(), <int>[4, 5, 6, 7]);
+        expect(await downloaded.readAsBytes(), _validFitBytes(<int>[4, 5, 6, 7]));
       },
     );
 
@@ -2229,7 +2234,7 @@ void main() {
 
           if (url == recordIdFitContentUrl) {
             return ResponseBody.fromBytes(
-              <int>[7, 7, 7],
+              _validFitBytes(<int>[7, 7, 7]),
               HttpStatus.ok,
               headers: <String, List<String>>{
                 Headers.contentTypeHeader: <String>['application/octet-stream'],
@@ -2292,7 +2297,7 @@ void main() {
         );
         expect(authHeadersByUrl[recordIdFitContentUrl], 'otm-token-123');
         expect(responseTypesByUrl[recordIdFitContentUrl], ResponseType.bytes);
-        expect(await downloaded.readAsBytes(), <int>[7, 7, 7]);
+        expect(await downloaded.readAsBytes(), _validFitBytes([7, 7, 7]));
       },
     );
 
@@ -2343,7 +2348,7 @@ void main() {
 
           if (url == fallbackRecordIdFitContentUrl) {
             return ResponseBody.fromBytes(
-              <int>[6, 9, 1],
+              _validFitBytes(<int>[6, 9, 1]),
               HttpStatus.ok,
               headers: <String, List<String>>{
                 Headers.contentTypeHeader: <String>['application/octet-stream'],
@@ -2409,7 +2414,7 @@ void main() {
           responseTypesByUrl[fallbackRecordIdFitContentUrl],
           ResponseType.bytes,
         );
-        expect(await downloaded.readAsBytes(), <int>[6, 9, 1]);
+        expect(await downloaded.readAsBytes(), _validFitBytes([6, 9, 1]));
       },
     );
 
@@ -2453,7 +2458,7 @@ void main() {
 
           if (url == 'http://fits.rfsvr.net/correct.fit?token=abc') {
             return ResponseBody.fromBytes(
-              <int>[4, 5, 6],
+              _validFitBytes(<int>[4, 5, 6]),
               HttpStatus.ok,
               headers: <String, List<String>>{
                 Headers.contentTypeHeader: <String>['application/octet-stream'],
@@ -2500,7 +2505,7 @@ void main() {
           recordIdFitContentUrl,
           'http://fits.rfsvr.net/correct.fit?token=abc',
         ]);
-        expect(await downloaded.readAsBytes(), <int>[4, 5, 6]);
+        expect(await downloaded.readAsBytes(), _validFitBytes([4, 5, 6]));
       },
     );
 
@@ -4461,7 +4466,7 @@ void main() {
 
           if (url == otmFitContentUrl) {
             return ResponseBody.fromBytes(
-              <int>[7, 6, 5, 4],
+              _validFitBytes(<int>[7, 6, 5, 4]),
               HttpStatus.ok,
               headers: <String, List<String>>{
                 Headers.contentTypeHeader: <String>['application/octet-stream'],
@@ -4506,7 +4511,7 @@ void main() {
         );
 
         expect(requests, contains(otmFitContentUrl));
-        expect(await downloaded.readAsBytes(), <int>[7, 6, 5, 4]);
+        expect(await downloaded.readAsBytes(), _validFitBytes(<int>[7, 6, 5, 4]));
       },
     );
 
@@ -4655,6 +4660,232 @@ void main() {
         expect(
           requests.where((String url) => url.contains('/fit_content/')),
           isEmpty,
+        );
+      },
+    );
+
+    test(
+      'falls back to OTM fit content when durl returns non-FIT .st content',
+      () async {
+        final List<String> requests = <String>[];
+        const String matchIdentifier =
+            'MATCH_677767-2026-03-05-21-06-35-log.st';
+        final String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            '${base64.encode(utf8.encode(matchIdentifier))}';
+        const String recordId = '69a984cab29588524341fe6b';
+        const String recordIdFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/$recordId';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': [
+                  {
+                    'token': 'otm-token-123',
+                    'refresh_token': 'otm-refresh-456',
+                  },
+                ],
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == recordIdFitContentUrl) {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.internalServerError,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/demo.st?token=abc') {
+            return ResponseBody.fromBytes(
+              <int>[0x01, 0x0C, 0x08, 0x01, 0x10],
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>[
+                  'application/vnd.sailingtracker.track',
+                ],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/MATCH_677767-2026-03-05-21-06-29-log.st') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            return ResponseBody.fromBytes(
+              _validFitBytes(<int>[8, 8, 8]),
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-st-fallback-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/demo.st?token=abc',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '677767',
+            recordId: recordId,
+            startTime: '2026-03-05T21:06:35',
+            fitUrl: 'http://fits.rfsvr.net/demo.st?token=abc',
+            recordKey: 'fitUrl:MATCH_677767-2026-03-05-21-06-35-log.st',
+            sourceFilename: 'demo.fit',
+            rawFitUrlAlt: matchIdentifier,
+            rawDurl: 'http://fits.rfsvr.net/demo.st?token=abc',
+          ),
+        );
+
+        expect(requests, contains(otmFitContentUrl));
+        expect(
+          await downloaded.readAsBytes(),
+          _validFitBytes(<int>[8, 8, 8]),
+        );
+      },
+    );
+
+    test(
+      'falls back to OTM fit content when durl returns 403',
+      () async {
+        final List<String> requests = <String>[];
+        const String matchIdentifier =
+            'MATCH_677767-2026-03-05-21-06-35-log.st';
+        final String otmFitContentUrl =
+            'https://otm.onelap.cn/api/otm/ride_record/analysis/fit_content/'
+            '${base64.encode(utf8.encode(matchIdentifier))}';
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          final String url = options.uri.toString();
+          requests.add(url);
+
+          if (url == 'http://example.com/api/login') {
+            return ResponseBody.fromString(
+              jsonEncode({
+                'code': 200,
+                'data': [
+                  {
+                    'token': 'otm-token-123',
+                    'refresh_token': 'otm-refresh-456',
+                  },
+                ],
+              }),
+              200,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/json'],
+              },
+            );
+          }
+
+          if (url == 'http://fits.rfsvr.net/demo.st?token=expired') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.forbidden,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['text/plain'],
+              },
+            );
+          }
+
+          if (url == 'http://example.com/MATCH_677767-2026-03-05-21-06-29-log.st') {
+            return ResponseBody.fromBytes(
+              <int>[],
+              HttpStatus.notFound,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          if (url == otmFitContentUrl) {
+            return ResponseBody.fromBytes(
+              _validFitBytes(<int>[9, 9, 9]),
+              HttpStatus.ok,
+              headers: <String, List<String>>{
+                Headers.contentTypeHeader: <String>['application/octet-stream'],
+              },
+            );
+          }
+
+          return ResponseBody.fromString('not found', 404);
+        });
+        final Directory outputDir = await Directory.systemTemp.createTemp(
+          'onelap-client-403-fallback-',
+        );
+
+        addTearDown(() async {
+          if (await outputDir.exists()) {
+            await outputDir.delete(recursive: true);
+          }
+        });
+
+        final OneLapClient client = OneLapClient(
+          baseUrl: 'http://example.com',
+          username: 'unused',
+          password: 'unused',
+          dio: dio,
+        );
+
+        final File downloaded = await client.downloadFit(
+          'http://fits.rfsvr.net/demo.st?token=expired',
+          'demo.fit',
+          outputDir,
+          activity: const OneLapActivity(
+            activityId: '677767',
+            startTime: '2026-03-05T21:06:35',
+            fitUrl: 'http://fits.rfsvr.net/demo.st?token=expired',
+            recordKey: 'fitUrl:MATCH_677767-2026-03-05-21-06-35-log.st',
+            sourceFilename: 'demo.fit',
+            rawFitUrlAlt: matchIdentifier,
+            rawDurl: 'http://fits.rfsvr.net/demo.st?token=expired',
+          ),
+        );
+
+        expect(requests, contains(otmFitContentUrl));
+        expect(
+          await downloaded.readAsBytes(),
+          _validFitBytes(<int>[9, 9, 9]),
         );
       },
     );

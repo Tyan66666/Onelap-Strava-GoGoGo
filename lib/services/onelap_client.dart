@@ -324,6 +324,26 @@ class OneLapClient {
     return filename;
   }
 
+  Future<bool> _isValidFitContent(File file) async {
+    try {
+      final raf = await file.open(mode: FileMode.read);
+      try {
+        if (await raf.length() < 14) return false;
+        await raf.setPosition(8);
+        final Uint8List magic = Uint8List(4);
+        await raf.readInto(magic);
+        return magic[0] == 0x2E &&
+            magic[1] == 0x46 &&
+            magic[2] == 0x49 &&
+            magic[3] == 0x54;
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
   String _selectDownloadUrl({
     required String rawDurl,
     required String rawFitUrl,
@@ -386,13 +406,19 @@ class OneLapClient {
           try {
             await _dio.download(downloadUrl, tempPath.path);
             lastError = null;
-            downloaded = true;
-            break;
+            if (await _isValidFitContent(tempPath)) {
+              downloaded = true;
+              break;
+            }
+            if (await tempPath.exists()) {
+              await tempPath.delete().catchError((_) => tempPath);
+            }
           } on DioException catch (e) {
             lastError = e;
             final int? statusCode = e.response?.statusCode;
             final bool canFallback =
-                statusCode == 404 &&
+                statusCode != null &&
+                statusCode != 200 &&
                 (i < downloadUrls.length - 1 || activity != null);
             if (!canFallback) rethrow;
             if (await tempPath.exists()) {
