@@ -15,14 +15,7 @@ void main() {
     final String debugContents = await debugEntitlements.readAsString();
     final String releaseContents = await releaseEntitlements.readAsString();
 
-    expect(
-      debugContents,
-      contains('com.apple.security.network.client'),
-    );
-    expect(
-      releaseContents,
-      contains('com.apple.security.network.client'),
-    );
-
+    expect(debugContents, contains('com.apple.security.network.client'));
+    expect(releaseContents, contains('com.apple.security.network.client'));
   });
 }

@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'fit_coordinate_rewrite_service.dart';
-import 'settings_service.dart';
-import 'strava_client.dart';
 import '../models/shared_fit_draft.dart';
+import 'fit_coordinate_rewrite_service.dart';
+import 'fit_upload_coordinator.dart';
+import 'settings_service.dart';
 
 enum SharedFitUploadStatus {
   missingConfiguration,
@@ -20,24 +20,24 @@ class SharedFitUploadResult {
 }
 
 typedef SharedFitSettingsLoader = Future<Map<String, String>> Function();
-typedef SharedFitUploadExecutor =
-    Future<void> Function({
-      required File file,
-      required Map<String, String> settings,
-    });
 
 class SharedFitUploadService {
   SharedFitUploadService({
     SharedFitSettingsLoader? loadSettings,
     FitCoordinateRewriteService? rewriteService,
-    SharedFitUploadExecutor? executeUpload,
+    FitUploadCoordinator? coordinator,
   }) : _loadSettings = loadSettings ?? SettingsService().loadSettings,
        _rewriteService = rewriteService,
-       _executeUpload = executeUpload ?? _defaultExecuteUpload;
+       _coordinator = coordinator ?? FitUploadCoordinator();
 
   final SharedFitSettingsLoader _loadSettings;
   final FitCoordinateRewriteService? _rewriteService;
-  final SharedFitUploadExecutor _executeUpload;
+  final FitUploadCoordinator _coordinator;
+
+  Future<FitUploadPlan> loadUploadPlan() async {
+    final Map<String, String> settings = await _loadSettings();
+    return _coordinator.resolveUploadPlan(settings);
+  }
 
   Future<SharedFitUploadResult> uploadDraft(SharedFitDraft draft) async {
     if (!_hasFitExtension(draft)) {
@@ -64,7 +64,8 @@ class SharedFitUploadService {
       );
     }
 
-    if (!_hasRequiredStravaConfiguration(settings)) {
+    final FitUploadPlan plan = _coordinator.resolveUploadPlan(settings);
+    if (plan.hasMissingConfiguration) {
       return const SharedFitUploadResult(
         status: SharedFitUploadStatus.missingConfiguration,
       );
@@ -88,17 +89,14 @@ class SharedFitUploadService {
     }
 
     try {
-      try {
-        await _executeUpload(file: uploadFile, settings: settings);
-        return const SharedFitUploadResult(
-          status: SharedFitUploadStatus.success,
-        );
-      } on Exception catch (error) {
-        return SharedFitUploadResult(
-          status: SharedFitUploadStatus.failure,
-          message: '$error'.replaceFirst('Exception: ', ''),
-        );
-      }
+      final FitUploadCoordinatorResult coordinatorResult = await _coordinator
+          .uploadFile(uploadFile, settings);
+      return _mapCoordinatorResult(coordinatorResult);
+    } on Exception catch (error) {
+      return SharedFitUploadResult(
+        status: SharedFitUploadStatus.failure,
+        message: '$error'.replaceFirst('Exception: ', ''),
+      );
     } finally {
       if (shouldDeleteUploadFile) {
         await _deleteTempUploadFile(uploadFile);
@@ -111,21 +109,11 @@ class SharedFitUploadService {
         draft.displayName.toLowerCase().endsWith('.fit');
   }
 
-  bool _hasRequiredStravaConfiguration(Map<String, String> settings) {
-    return _hasValue(settings, SettingsService.keyStravaClientId) &&
-        _hasValue(settings, SettingsService.keyStravaClientSecret) &&
-        _hasValue(settings, SettingsService.keyStravaRefreshToken);
-  }
-
   bool _isGcjCorrectionEnabled(Map<String, String> settings) {
     return (settings[SettingsService.keyGcjCorrectionEnabled] ?? '')
             .trim()
             .toLowerCase() ==
         'true';
-  }
-
-  bool _hasValue(Map<String, String> settings, String key) {
-    return (settings[key] ?? '').trim().isNotEmpty;
   }
 
   Future<bool> _isReadableFile(File file) async {
@@ -151,28 +139,128 @@ class SharedFitUploadService {
     }
   }
 
-  static Future<void> _defaultExecuteUpload({
-    required File file,
-    required Map<String, String> settings,
-  }) async {
-    final StravaClient client = StravaClient(
-      clientId: settings[SettingsService.keyStravaClientId] ?? '',
-      clientSecret: settings[SettingsService.keyStravaClientSecret] ?? '',
-      refreshToken: settings[SettingsService.keyStravaRefreshToken] ?? '',
-      accessToken: settings[SettingsService.keyStravaAccessToken] ?? '',
-      expiresAt:
-          int.tryParse(settings[SettingsService.keyStravaExpiresAt] ?? '') ?? 0,
+  SharedFitUploadResult _mapCoordinatorResult(
+    FitUploadCoordinatorResult coordinatorResult,
+  ) {
+    switch (coordinatorResult.status) {
+      case FitUploadCoordinatorStatus.missingConfiguration:
+        return const SharedFitUploadResult(
+          status: SharedFitUploadStatus.missingConfiguration,
+        );
+      case FitUploadCoordinatorStatus.success:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.success,
+          message: _buildSuccessMessage(coordinatorResult.platformResults),
+        );
+      case FitUploadCoordinatorStatus.partialSuccess:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.success,
+          message: _buildPartialSuccessMessage(
+            coordinatorResult.platformResults,
+          ),
+        );
+      case FitUploadCoordinatorStatus.failure:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.failure,
+          message: _buildFailureMessage(coordinatorResult.platformResults),
+        );
+    }
+  }
+
+  String? _buildSuccessMessage(List<FitUploadPlatformResult> platformResults) {
+    final List<String> successfulTargets = _successfulTargetLabels(
+      platformResults,
     );
-    final int uploadId = await client.uploadFit(file);
-    final Map<String, dynamic> result = await client.pollUpload(uploadId);
-    final Object? activityId = result['activity_id'];
-    final Object? error = result['error'];
-    if (activityId != null) {
-      return;
+    if (successfulTargets.isEmpty) {
+      return null;
     }
-    if (error != null) {
-      throw Exception('$error');
+
+    return 'FIT 文件已经上传到 ${_joinTargetLabels(successfulTargets)}。';
+  }
+
+  String? _buildPartialSuccessMessage(
+    List<FitUploadPlatformResult> platformResults,
+  ) {
+    final List<String> successfulTargets = _successfulTargetLabels(
+      platformResults,
+    );
+    final List<String> failureMessages = platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.failure,
+        )
+        .map(
+          (FitUploadPlatformResult result) =>
+              '${_platformLabel(result.platform)}上传失败${_formatFailureDetail(result.message)}',
+        )
+        .toList();
+
+    if (successfulTargets.isEmpty) {
+      return _buildFailureMessage(platformResults);
     }
-    throw Exception('Strava upload did not complete');
+
+    if (failureMessages.isEmpty) {
+      return 'FIT 文件已经上传到 ${_joinTargetLabels(successfulTargets)}。';
+    }
+
+    return '已上传到 ${_joinTargetLabels(successfulTargets)}；${failureMessages.join('；')}';
+  }
+
+  String? _buildFailureMessage(List<FitUploadPlatformResult> platformResults) {
+    final List<String> failureMessages = platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.failure,
+        )
+        .map(
+          (FitUploadPlatformResult result) =>
+              '${_platformLabel(result.platform)}上传失败${_formatFailureDetail(result.message)}',
+        )
+        .toList();
+
+    if (failureMessages.isNotEmpty) {
+      return failureMessages.join('；');
+    }
+
+    return null;
+  }
+
+  List<String> _successfulTargetLabels(
+    List<FitUploadPlatformResult> platformResults,
+  ) {
+    return platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.success ||
+              result.status == FitUploadPlatformStatus.alreadyUploaded,
+        )
+        .map(
+          (FitUploadPlatformResult result) => _platformLabel(result.platform),
+        )
+        .toList();
+  }
+
+  String _joinTargetLabels(List<String> labels) {
+    if (labels.length == 2) {
+      return '${labels.first} 和${labels.last}';
+    }
+
+    return labels.join('、');
+  }
+
+  String _platformLabel(FitUploadPlatform platform) {
+    return switch (platform) {
+      FitUploadPlatform.strava => 'Strava',
+      FitUploadPlatform.xingzhe => '行者',
+    };
+  }
+
+  String _formatFailureDetail(String? message) {
+    final String trimmedMessage = (message ?? '').trim();
+    if (trimmedMessage.isEmpty) {
+      return '';
+    }
+
+    return '：$trimmedMessage';
   }
 }

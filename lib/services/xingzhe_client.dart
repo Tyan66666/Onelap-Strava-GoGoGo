@@ -21,6 +21,20 @@ class XingzhePermanentError implements Exception {
   String toString() => 'XingzhePermanentError: $message';
 }
 
+class XingzheUploadFitResult {
+  const XingzheUploadFitResult({
+    required this.uploadId,
+    this.remoteActivityId,
+    this.alreadyUploaded = false,
+    this.message,
+  });
+
+  final int uploadId;
+  final int? remoteActivityId;
+  final bool alreadyUploaded;
+  final String? message;
+}
+
 class XingzheClient {
   String username;
   String password;
@@ -233,6 +247,17 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
   }
 
   Future<int> uploadFit(File file, {int retries = 3}) async {
+    final XingzheUploadFitResult result = await uploadFitDetailed(
+      file,
+      retries: retries,
+    );
+    return result.remoteActivityId ?? result.uploadId;
+  }
+
+  Future<XingzheUploadFitResult> uploadFitDetailed(
+    File file, {
+    int retries = 3,
+  }) async {
     final String filename = file.path.split('/').last;
 
     for (var attempt = 1; attempt <= retries; attempt++) {
@@ -312,7 +337,12 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
           final existingId = match != null
               ? int.tryParse(match.group(1)!) ?? 0
               : 0;
-          return existingId;
+          return XingzheUploadFitResult(
+            uploadId: 0,
+            remoteActivityId: existingId > 0 ? existingId : null,
+            alreadyUploaded: true,
+            message: msg,
+          );
         }
 
         if (response.statusCode != null && response.statusCode! >= 400) {
@@ -335,12 +365,15 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
         final data = payload['data'] as Map<String, dynamic>?;
         final workoutIdRaw = data?['workout_id'] ?? data?['id'];
         if (workoutIdRaw == null) {
-          return 0;
+          return const XingzheUploadFitResult(uploadId: 0);
         }
         final int workoutId = workoutIdRaw is int
             ? workoutIdRaw
             : int.tryParse('$workoutIdRaw') ?? 0;
-        return workoutId;
+        return XingzheUploadFitResult(
+          uploadId: workoutId,
+          remoteActivityId: workoutId > 0 ? workoutId : null,
+        );
       } catch (e) {
         rethrow;
       }

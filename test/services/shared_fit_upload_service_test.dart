@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:onelap_strava_sync/models/shared_fit_draft.dart';
 import 'package:onelap_strava_sync/services/fit_coordinate_rewrite_service.dart';
+import 'package:onelap_strava_sync/services/fit_upload_coordinator.dart';
 import 'package:onelap_strava_sync/services/settings_service.dart';
 import 'package:onelap_strava_sync/services/shared_fit_upload_service.dart';
 
@@ -23,70 +24,150 @@ class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
   }
 }
 
-Map<String, String> _validStravaSettings({
+class _FakeFitUploadCoordinator extends FitUploadCoordinator {
+  _FakeFitUploadCoordinator({
+    FitUploadPlan? plan,
+    FitUploadCoordinatorResult? result,
+  }) : plan =
+           plan ??
+           FitUploadPlan(
+             targets: <FitUploadPlatform>[FitUploadPlatform.strava],
+             hasMissingConfiguration: false,
+             targetLabel: 'Strava',
+           ),
+       result =
+           result ??
+           FitUploadCoordinatorResult(
+             status: FitUploadCoordinatorStatus.success,
+             platformResults: <FitUploadPlatformResult>[
+               const FitUploadPlatformResult(
+                 platform: FitUploadPlatform.strava,
+                 status: FitUploadPlatformStatus.success,
+               ),
+             ],
+           );
+
+  FitUploadPlan plan;
+  FitUploadCoordinatorResult result;
+  File? uploadedFile;
+  Map<String, String>? uploadedSettings;
+  int resolveUploadPlanCalls = 0;
+  int uploadFileCalls = 0;
+
+  @override
+  FitUploadPlan resolveUploadPlan(Map<String, String> settings) {
+    resolveUploadPlanCalls += 1;
+    return plan;
+  }
+
+  @override
+  Future<FitUploadCoordinatorResult> uploadFile(
+    File file,
+    Map<String, String> settings,
+  ) async {
+    uploadFileCalls += 1;
+    uploadedFile = file;
+    uploadedSettings = settings;
+    return result;
+  }
+}
+
+Map<String, String> _settings({
+  String uploadToStrava = 'true',
+  String uploadToXingzhe = 'false',
   String gcjCorrectionEnabled = 'false',
 }) {
   return <String, String>{
+    SettingsService.keyUploadToStrava: uploadToStrava,
+    SettingsService.keyUploadToXingzhe: uploadToXingzhe,
+    SettingsService.keyGcjCorrectionEnabled: gcjCorrectionEnabled,
     SettingsService.keyStravaClientId: 'client-id',
     SettingsService.keyStravaClientSecret: 'client-secret',
     SettingsService.keyStravaRefreshToken: 'refresh-token',
-    SettingsService.keyGcjCorrectionEnabled: gcjCorrectionEnabled,
+    SettingsService.keyXingzheUsername: 'username',
+    SettingsService.keyXingzhePassword: 'password',
   };
 }
 
+Future<File> _createFitFile(Directory tempDir, {String name = 'activity.fit'}) {
+  final File fitFile = File('${tempDir.path}/$name');
+  return fitFile.writeAsBytes(<int>[1, 2, 3]);
+}
+
 void main() {
-  group('SharedFitUploadService.uploadDraft', () {
+  group('SharedFitUploadService.loadUploadPlan', () {
+    test('returns a Strava target label from coordinator preflight', () async {
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+        plan: FitUploadPlan(
+          targets: <FitUploadPlatform>[FitUploadPlatform.strava],
+          hasMissingConfiguration: false,
+          targetLabel: 'Strava',
+        ),
+      );
+      final SharedFitUploadService service = SharedFitUploadService(
+        loadSettings: () async => _settings(uploadToStrava: 'true'),
+        coordinator: coordinator,
+      );
+
+      final FitUploadPlan plan = await service.loadUploadPlan();
+
+      expect(plan.targetLabel, 'Strava');
+      expect(coordinator.resolveUploadPlanCalls, 1);
+    });
+
+    test('returns a Xingzhe target label from coordinator preflight', () async {
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+        plan: FitUploadPlan(
+          targets: <FitUploadPlatform>[FitUploadPlatform.xingzhe],
+          hasMissingConfiguration: false,
+          targetLabel: '行者',
+        ),
+      );
+      final SharedFitUploadService service = SharedFitUploadService(
+        loadSettings: () async =>
+            _settings(uploadToStrava: 'false', uploadToXingzhe: 'true'),
+        coordinator: coordinator,
+      );
+
+      final FitUploadPlan plan = await service.loadUploadPlan();
+
+      expect(plan.targetLabel, '行者');
+      expect(coordinator.resolveUploadPlanCalls, 1);
+    });
+
     test(
-      'returns missingConfiguration when Strava settings are incomplete',
+      'returns a dual-platform target label from coordinator preflight',
       () async {
-        final Directory tempDir = await Directory.systemTemp.createTemp(
-          'shared-fit-upload-missing-config-',
+        final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+          plan: FitUploadPlan(
+            targets: <FitUploadPlatform>[
+              FitUploadPlatform.strava,
+              FitUploadPlatform.xingzhe,
+            ],
+            hasMissingConfiguration: false,
+            targetLabel: 'Strava 和行者',
+          ),
         );
-        final File fitFile = File('${tempDir.path}/activity.fit');
-        await fitFile.writeAsBytes(<int>[1, 2, 3]);
-
-        addTearDown(() async {
-          if (await tempDir.exists()) {
-            await tempDir.delete(recursive: true);
-          }
-        });
-
         final SharedFitUploadService service = SharedFitUploadService(
-          loadSettings: () async => <String, String>{
-            SettingsService.keyStravaClientId: '',
-            SettingsService.keyStravaClientSecret: 'client-secret',
-            SettingsService.keyStravaRefreshToken: 'refresh-token',
-          },
-          executeUpload:
-              ({required File file, required Map<String, String> settings}) {
-                fail(
-                  'executeUpload should not be called when configuration is missing',
-                );
-              },
+          loadSettings: () async =>
+              _settings(uploadToStrava: 'true', uploadToXingzhe: 'true'),
+          coordinator: coordinator,
         );
 
-        final SharedFitDraft draft = SharedFitDraft(
-          localFilePath: fitFile.path,
-          displayName: 'activity.fit',
-        );
+        final FitUploadPlan plan = await service.loadUploadPlan();
 
-        final SharedFitUploadResult result = await service.uploadDraft(draft);
-
-        expect(result.status, SharedFitUploadStatus.missingConfiguration);
+        expect(plan.targetLabel, 'Strava 和行者');
+        expect(coordinator.resolveUploadPlanCalls, 1);
       },
     );
+  });
 
+  group('SharedFitUploadService.uploadDraft', () {
     test('returns invalidFile for a non-fit extension', () async {
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator();
       final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-        },
-        executeUpload:
-            ({required File file, required Map<String, String> settings}) {
-              fail('executeUpload should not be called for invalid files');
-            },
+        loadSettings: () async => _settings(),
+        coordinator: coordinator,
       );
 
       const SharedFitDraft draft = SharedFitDraft(
@@ -97,19 +178,15 @@ void main() {
       final SharedFitUploadResult result = await service.uploadDraft(draft);
 
       expect(result.status, SharedFitUploadStatus.invalidFile);
+      expect(coordinator.resolveUploadPlanCalls, 0);
+      expect(coordinator.uploadFileCalls, 0);
     });
 
     test('returns invalidFile when the local file is not readable', () async {
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator();
       final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-        },
-        executeUpload:
-            ({required File file, required Map<String, String> settings}) {
-              fail('executeUpload should not be called for unreadable files');
-            },
+        loadSettings: () async => _settings(),
+        coordinator: coordinator,
       );
 
       const SharedFitDraft draft = SharedFitDraft(
@@ -120,16 +197,17 @@ void main() {
       final SharedFitUploadResult result = await service.uploadDraft(draft);
 
       expect(result.status, SharedFitUploadStatus.invalidFile);
+      expect(coordinator.resolveUploadPlanCalls, 0);
+      expect(coordinator.uploadFileCalls, 0);
     });
 
     test(
-      'accepts a fit localFilePath when displayName lacks the fit extension',
+      'returns missingConfiguration when no upload targets are enabled',
       () async {
         final Directory tempDir = await Directory.systemTemp.createTemp(
-          'shared-fit-upload-display-name-mismatch-',
+          'shared-fit-upload-missing-config-',
         );
-        final File fitFile = File('${tempDir.path}/activity.fit');
-        await fitFile.writeAsBytes(<int>[1, 2, 3]);
+        final File fitFile = await _createFitFile(tempDir);
 
         addTearDown(() async {
           if (await tempDir.exists()) {
@@ -137,16 +215,51 @@ void main() {
           }
         });
 
-        File? uploadedFile;
+        final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+          plan: FitUploadPlan(
+            targets: const <FitUploadPlatform>[],
+            hasMissingConfiguration: true,
+            targetLabel: '',
+          ),
+        );
         final SharedFitUploadService service = SharedFitUploadService(
-          loadSettings: () async => _validStravaSettings(),
-          executeUpload:
-              ({
-                required File file,
-                required Map<String, String> settings,
-              }) async {
-                uploadedFile = file;
-              },
+          loadSettings: () async =>
+              _settings(uploadToStrava: 'false', uploadToXingzhe: 'false'),
+          coordinator: coordinator,
+        );
+
+        final SharedFitDraft draft = SharedFitDraft(
+          localFilePath: fitFile.path,
+          displayName: 'activity.fit',
+        );
+
+        final SharedFitUploadResult result = await service.uploadDraft(draft);
+
+        expect(result.status, SharedFitUploadStatus.missingConfiguration);
+        expect(coordinator.resolveUploadPlanCalls, 1);
+        expect(coordinator.uploadFileCalls, 0);
+      },
+    );
+
+    test(
+      'accepts a fit localFilePath when displayName lacks the fit extension',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'shared-fit-upload-display-name-mismatch-',
+        );
+        final File fitFile = await _createFitFile(tempDir);
+
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final _FakeFitUploadCoordinator coordinator =
+            _FakeFitUploadCoordinator();
+        final SharedFitUploadService service = SharedFitUploadService(
+          loadSettings: () async => _settings(),
+          coordinator: coordinator,
         );
 
         final SharedFitDraft draft = SharedFitDraft(
@@ -157,8 +270,8 @@ void main() {
         final SharedFitUploadResult result = await service.uploadDraft(draft);
 
         expect(result.status, SharedFitUploadStatus.success);
-        expect(uploadedFile, isNotNull);
-        expect(uploadedFile!.path, fitFile.path);
+        expect(coordinator.uploadedFile, isNotNull);
+        expect(coordinator.uploadedFile!.path, fitFile.path);
       },
     );
 
@@ -166,8 +279,7 @@ void main() {
       final Directory tempDir = await Directory.systemTemp.createTemp(
         'shared-fit-upload-settings-failure-',
       );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
+      final File fitFile = await _createFitFile(tempDir);
 
       addTearDown(() async {
         if (await tempDir.exists()) {
@@ -175,16 +287,12 @@ void main() {
         }
       });
 
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator();
       final SharedFitUploadService service = SharedFitUploadService(
         loadSettings: () async {
           throw Exception('settings unavailable');
         },
-        executeUpload:
-            ({required File file, required Map<String, String> settings}) {
-              fail(
-                'executeUpload should not be called when loading settings fails',
-              );
-            },
+        coordinator: coordinator,
       );
 
       final SharedFitDraft draft = SharedFitDraft(
@@ -196,61 +304,19 @@ void main() {
 
       expect(result.status, SharedFitUploadStatus.failure);
       expect(result.message, 'Failed to load settings: settings unavailable');
+      expect(coordinator.resolveUploadPlanCalls, 0);
+      expect(coordinator.uploadFileCalls, 0);
     });
 
-    test('returns success after the upload flow completes', () async {
-      final Directory tempDir = await Directory.systemTemp.createTemp(
-        'shared-fit-upload-success-',
-      );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
-
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
-
-      File? uploadedFile;
-      bool completed = false;
-      final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-        },
-        executeUpload:
-            ({
-              required File file,
-              required Map<String, String> settings,
-            }) async {
-              uploadedFile = file;
-              await Future<void>.delayed(Duration.zero);
-              completed = true;
-            },
-      );
-
-      final SharedFitDraft draft = SharedFitDraft(
-        localFilePath: fitFile.path,
-        displayName: 'activity.fit',
-      );
-
-      final SharedFitUploadResult result = await service.uploadDraft(draft);
-
-      expect(result.status, SharedFitUploadStatus.success);
-      expect(uploadedFile, isNotNull);
-      expect(uploadedFile!.path, fitFile.path);
-      expect(completed, isTrue);
-    });
-
-    test('uploads the original file when GCJ rewrite is disabled', () async {
+    test('delegates the original file when GCJ rewrite is disabled', () async {
       final Directory tempDir = await Directory.systemTemp.createTemp(
         'shared-fit-upload-rewrite-disabled-',
       );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      final File rewrittenFile = File('${tempDir.path}/rewritten.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
-      await rewrittenFile.writeAsBytes(<int>[4, 5, 6]);
+      final File fitFile = await _createFitFile(tempDir);
+      final File rewrittenFile = await _createFitFile(
+        tempDir,
+        name: 'rewritten.fit',
+      );
 
       addTearDown(() async {
         if (await tempDir.exists()) {
@@ -260,22 +326,11 @@ void main() {
 
       final _FakeFitCoordinateRewriteService rewriteService =
           _FakeFitCoordinateRewriteService(rewriteFile: rewrittenFile);
-      File? uploadedFile;
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator();
       final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-          SettingsService.keyGcjCorrectionEnabled: 'false',
-        },
+        loadSettings: () async => _settings(gcjCorrectionEnabled: 'false'),
         rewriteService: rewriteService,
-        executeUpload:
-            ({
-              required File file,
-              required Map<String, String> settings,
-            }) async {
-              uploadedFile = file;
-            },
+        coordinator: coordinator,
       );
 
       final SharedFitDraft draft = SharedFitDraft(
@@ -287,108 +342,106 @@ void main() {
 
       expect(result.status, SharedFitUploadStatus.success);
       expect(rewriteService.receivedFile, isNull);
-      expect(uploadedFile, isNotNull);
-      expect(uploadedFile!.path, fitFile.path);
+      expect(coordinator.uploadedFile, isNotNull);
+      expect(coordinator.uploadedFile!.path, fitFile.path);
     });
 
-    test('uploads the rewritten file when GCJ rewrite is enabled', () async {
-      final Directory tempDir = await Directory.systemTemp.createTemp(
-        'shared-fit-upload-rewrite-enabled-',
-      );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      final File rewrittenFile = File('${tempDir.path}/rewritten.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
-      await rewrittenFile.writeAsBytes(<int>[4, 5, 6]);
+    test(
+      'rewrites the file before delegating upload when GCJ rewrite is enabled',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'shared-fit-upload-rewrite-enabled-',
+        );
+        final File fitFile = await _createFitFile(tempDir);
+        final File rewrittenFile = await _createFitFile(
+          tempDir,
+          name: 'rewritten.fit',
+        );
 
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
 
-      final _FakeFitCoordinateRewriteService rewriteService =
-          _FakeFitCoordinateRewriteService(rewriteFile: rewrittenFile);
-      File? uploadedFile;
-      final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-          SettingsService.keyGcjCorrectionEnabled: 'true',
-        },
-        rewriteService: rewriteService,
-        executeUpload:
-            ({
-              required File file,
-              required Map<String, String> settings,
-            }) async {
-              uploadedFile = file;
-            },
-      );
+        final _FakeFitCoordinateRewriteService rewriteService =
+            _FakeFitCoordinateRewriteService(rewriteFile: rewrittenFile);
+        final _FakeFitUploadCoordinator coordinator =
+            _FakeFitUploadCoordinator();
+        final SharedFitUploadService service = SharedFitUploadService(
+          loadSettings: () async => _settings(gcjCorrectionEnabled: 'true'),
+          rewriteService: rewriteService,
+          coordinator: coordinator,
+        );
 
-      final SharedFitDraft draft = SharedFitDraft(
-        localFilePath: fitFile.path,
-        displayName: 'activity.fit',
-      );
+        final SharedFitDraft draft = SharedFitDraft(
+          localFilePath: fitFile.path,
+          displayName: 'activity.fit',
+        );
 
-      final SharedFitUploadResult result = await service.uploadDraft(draft);
+        final SharedFitUploadResult result = await service.uploadDraft(draft);
 
-      expect(result.status, SharedFitUploadStatus.success);
-      expect(rewriteService.receivedFile, isNotNull);
-      expect(rewriteService.receivedFile!.path, fitFile.path);
-      expect(uploadedFile, isNotNull);
-      expect(uploadedFile!.path, rewrittenFile.path);
-    });
+        expect(result.status, SharedFitUploadStatus.success);
+        expect(rewriteService.receivedFile, isNotNull);
+        expect(rewriteService.receivedFile!.path, fitFile.path);
+        expect(coordinator.uploadedFile, isNotNull);
+        expect(coordinator.uploadedFile!.path, rewrittenFile.path);
+      },
+    );
 
-    test('deletes the rewritten temp file after the upload attempt', () async {
-      final Directory tempDir = await Directory.systemTemp.createTemp(
-        'shared-fit-upload-rewrite-cleanup-',
-      );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      final File rewrittenFile = File('${tempDir.path}/rewritten.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
-      await rewrittenFile.writeAsBytes(<int>[4, 5, 6]);
+    test(
+      'deletes rewritten temp files after the delegated upload attempt',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'shared-fit-upload-rewrite-cleanup-',
+        );
+        final File fitFile = await _createFitFile(tempDir);
+        final Directory rewrittenDir = await Directory.systemTemp.createTemp(
+          'fit-coordinate-rewrite-',
+        );
+        final File rewrittenFile = await _createFitFile(
+          rewrittenDir,
+          name: 'rewritten.fit',
+        );
 
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
+        addTearDown(() async {
+          if (await rewrittenDir.exists()) {
+            await rewrittenDir.delete(recursive: true);
+          }
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
 
-      final _FakeFitCoordinateRewriteService rewriteService =
-          _FakeFitCoordinateRewriteService(rewriteFile: rewrittenFile);
-      final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async =>
-            _validStravaSettings(gcjCorrectionEnabled: 'true'),
-        rewriteService: rewriteService,
-        executeUpload:
-            ({
-              required File file,
-              required Map<String, String> settings,
-            }) async {
-              expect(file.path, rewrittenFile.path);
-              expect(await rewrittenFile.exists(), isTrue);
-            },
-      );
+        final _FakeFitCoordinateRewriteService rewriteService =
+            _FakeFitCoordinateRewriteService(rewriteFile: rewrittenFile);
+        final _FakeFitUploadCoordinator coordinator =
+            _FakeFitUploadCoordinator();
+        final SharedFitUploadService service = SharedFitUploadService(
+          loadSettings: () async => _settings(gcjCorrectionEnabled: 'true'),
+          rewriteService: rewriteService,
+          coordinator: coordinator,
+        );
 
-      final SharedFitDraft draft = SharedFitDraft(
-        localFilePath: fitFile.path,
-        displayName: 'activity.fit',
-      );
+        final SharedFitDraft draft = SharedFitDraft(
+          localFilePath: fitFile.path,
+          displayName: 'activity.fit',
+        );
 
-      final SharedFitUploadResult result = await service.uploadDraft(draft);
+        final SharedFitUploadResult result = await service.uploadDraft(draft);
 
-      expect(result.status, SharedFitUploadStatus.success);
-      expect(await fitFile.exists(), isTrue);
-      expect(await rewrittenFile.exists(), isFalse);
-    });
+        expect(result.status, SharedFitUploadStatus.success);
+        expect(await fitFile.exists(), isTrue);
+        expect(await rewrittenFile.exists(), isFalse);
+        expect(await rewrittenDir.exists(), isTrue);
+      },
+    );
 
     test('returns failure when GCJ rewrite throws', () async {
       final Directory tempDir = await Directory.systemTemp.createTemp(
         'shared-fit-upload-rewrite-failure-',
       );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
+      final File fitFile = await _createFitFile(tempDir);
 
       addTearDown(() async {
         if (await tempDir.exists()) {
@@ -398,18 +451,11 @@ void main() {
 
       final _FakeFitCoordinateRewriteService rewriteService =
           _FakeFitCoordinateRewriteService(error: Exception('rewrite failed'));
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator();
       final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-          SettingsService.keyGcjCorrectionEnabled: 'true',
-        },
+        loadSettings: () async => _settings(gcjCorrectionEnabled: 'true'),
         rewriteService: rewriteService,
-        executeUpload:
-            ({required File file, required Map<String, String> settings}) {
-              fail('executeUpload should not be called when rewrite fails');
-            },
+        coordinator: coordinator,
       );
 
       final SharedFitDraft draft = SharedFitDraft(
@@ -421,14 +467,14 @@ void main() {
 
       expect(result.status, SharedFitUploadStatus.failure);
       expect(result.message, 'FIT coordinate rewrite failed: rewrite failed');
+      expect(coordinator.uploadFileCalls, 0);
     });
 
-    test('returns failure when the upload flow throws', () async {
+    test('returns success with a partial-success message', () async {
       final Directory tempDir = await Directory.systemTemp.createTemp(
-        'shared-fit-upload-failure-',
+        'shared-fit-upload-partial-success-',
       );
-      final File fitFile = File('${tempDir.path}/activity.fit');
-      await fitFile.writeAsBytes(<int>[1, 2, 3]);
+      final File fitFile = await _createFitFile(tempDir);
 
       addTearDown(() async {
         if (await tempDir.exists()) {
@@ -436,19 +482,87 @@ void main() {
         }
       });
 
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+        plan: FitUploadPlan(
+          targets: <FitUploadPlatform>[
+            FitUploadPlatform.strava,
+            FitUploadPlatform.xingzhe,
+          ],
+          hasMissingConfiguration: false,
+          targetLabel: 'Strava 和行者',
+        ),
+        result: FitUploadCoordinatorResult(
+          status: FitUploadCoordinatorStatus.partialSuccess,
+          platformResults: const <FitUploadPlatformResult>[
+            FitUploadPlatformResult(
+              platform: FitUploadPlatform.strava,
+              status: FitUploadPlatformStatus.success,
+            ),
+            FitUploadPlatformResult(
+              platform: FitUploadPlatform.xingzhe,
+              status: FitUploadPlatformStatus.failure,
+              message: 'session expired',
+            ),
+          ],
+        ),
+      );
       final SharedFitUploadService service = SharedFitUploadService(
-        loadSettings: () async => <String, String>{
-          SettingsService.keyStravaClientId: 'client-id',
-          SettingsService.keyStravaClientSecret: 'client-secret',
-          SettingsService.keyStravaRefreshToken: 'refresh-token',
-        },
-        executeUpload:
-            ({
-              required File file,
-              required Map<String, String> settings,
-            }) async {
-              throw Exception('upload failed');
-            },
+        loadSettings: () async =>
+            _settings(uploadToStrava: 'true', uploadToXingzhe: 'true'),
+        coordinator: coordinator,
+      );
+
+      final SharedFitDraft draft = SharedFitDraft(
+        localFilePath: fitFile.path,
+        displayName: 'activity.fit',
+      );
+
+      final SharedFitUploadResult result = await service.uploadDraft(draft);
+
+      expect(result.status, SharedFitUploadStatus.success);
+      expect(result.message, '已上传到 Strava；行者上传失败：session expired');
+    });
+
+    test('returns failure when all delegated uploads fail', () async {
+      final Directory tempDir = await Directory.systemTemp.createTemp(
+        'shared-fit-upload-failure-',
+      );
+      final File fitFile = await _createFitFile(tempDir);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final _FakeFitUploadCoordinator coordinator = _FakeFitUploadCoordinator(
+        plan: FitUploadPlan(
+          targets: <FitUploadPlatform>[
+            FitUploadPlatform.strava,
+            FitUploadPlatform.xingzhe,
+          ],
+          hasMissingConfiguration: false,
+          targetLabel: 'Strava 和行者',
+        ),
+        result: FitUploadCoordinatorResult(
+          status: FitUploadCoordinatorStatus.failure,
+          platformResults: const <FitUploadPlatformResult>[
+            FitUploadPlatformResult(
+              platform: FitUploadPlatform.strava,
+              status: FitUploadPlatformStatus.failure,
+              message: 'upload failed',
+            ),
+            FitUploadPlatformResult(
+              platform: FitUploadPlatform.xingzhe,
+              status: FitUploadPlatformStatus.failure,
+              message: 'session expired',
+            ),
+          ],
+        ),
+      );
+      final SharedFitUploadService service = SharedFitUploadService(
+        loadSettings: () async => _settings(),
+        coordinator: coordinator,
       );
 
       final SharedFitDraft draft = SharedFitDraft(
@@ -459,49 +573,7 @@ void main() {
       final SharedFitUploadResult result = await service.uploadDraft(draft);
 
       expect(result.status, SharedFitUploadStatus.failure);
-      expect(result.message, 'upload failed');
+      expect(result.message, 'Strava上传失败：upload failed；行者上传失败：session expired');
     });
-
-    test(
-      'returns failure when upload succeeds but polling result is not ready',
-      () async {
-        final Directory tempDir = await Directory.systemTemp.createTemp(
-          'shared-fit-upload-poll-failure-',
-        );
-        final File fitFile = File('${tempDir.path}/activity.fit');
-        await fitFile.writeAsBytes(<int>[1, 2, 3]);
-
-        addTearDown(() async {
-          if (await tempDir.exists()) {
-            await tempDir.delete(recursive: true);
-          }
-        });
-
-        final SharedFitUploadService service = SharedFitUploadService(
-          loadSettings: () async => <String, String>{
-            SettingsService.keyStravaClientId: 'client-id',
-            SettingsService.keyStravaClientSecret: 'client-secret',
-            SettingsService.keyStravaRefreshToken: 'refresh-token',
-          },
-          executeUpload:
-              ({
-                required File file,
-                required Map<String, String> settings,
-              }) async {
-                throw Exception('Strava is still processing the upload');
-              },
-        );
-
-        final SharedFitDraft draft = SharedFitDraft(
-          localFilePath: fitFile.path,
-          displayName: 'activity.fit',
-        );
-
-        final SharedFitUploadResult result = await service.uploadDraft(draft);
-
-        expect(result.status, SharedFitUploadStatus.failure);
-        expect(result.message, 'Strava is still processing the upload');
-      },
-    );
   });
 }

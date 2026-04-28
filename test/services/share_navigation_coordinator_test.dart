@@ -7,6 +7,7 @@ import 'package:onelap_strava_sync/models/shared_fit_draft.dart';
 import 'package:onelap_strava_sync/models/shared_fit_event.dart';
 import 'package:onelap_strava_sync/services/share_intake_service.dart';
 import 'package:onelap_strava_sync/services/share_navigation_coordinator.dart';
+import 'package:onelap_strava_sync/services/settings_service.dart';
 import 'package:onelap_strava_sync/services/shared_fit_upload_service.dart';
 
 void main() {
@@ -49,6 +50,106 @@ void main() {
     expect(find.text('first.fit'), findsOneWidget);
     expect(find.text('上传到 Strava'), findsOneWidget);
   });
+
+  testWidgets(
+    'subscribes before loading the initial event to avoid dropping startup events',
+    (WidgetTester tester) async {
+      final GlobalKey<NavigatorState> navigatorKey =
+          GlobalKey<NavigatorState>();
+      final Completer<SharedFitEvent?> initialEventCompleter =
+          Completer<SharedFitEvent?>();
+      final _FakeShareIntakeService intakeService = _FakeShareIntakeService(
+        initialEventFuture: initialEventCompleter.future,
+      );
+      final ShareNavigationCoordinator coordinator = ShareNavigationCoordinator(
+        navigatorKey: navigatorKey,
+        shareIntakeService: intakeService,
+        uploadService: _FakeUploadService.withResult(
+          const SharedFitUploadResult(status: SharedFitUploadStatus.success),
+        ),
+        uploadActivity: ShareFlowUploadActivity(),
+        successFeedbackDuration: Duration.zero,
+      );
+
+      addTearDown(coordinator.dispose);
+      addTearDown(intakeService.dispose);
+
+      await tester.pumpWidget(
+        _CoordinatorHost(navigatorKey: navigatorKey, coordinator: coordinator),
+      );
+      await tester.pump();
+
+      intakeService.add(
+        const SharedFitEvent.draft(
+          SharedFitDraft(
+            localFilePath: '/tmp/stream.fit',
+            displayName: 'stream.fit',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('stream.fit'), findsOneWidget);
+
+      initialEventCompleter.complete(null);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'does not let a delayed initial event replace a newer live startup event',
+    (WidgetTester tester) async {
+      final GlobalKey<NavigatorState> navigatorKey =
+          GlobalKey<NavigatorState>();
+      final Completer<SharedFitEvent?> initialEventCompleter =
+          Completer<SharedFitEvent?>();
+      final _FakeShareIntakeService intakeService = _FakeShareIntakeService(
+        initialEventFuture: initialEventCompleter.future,
+      );
+      final ShareNavigationCoordinator coordinator = ShareNavigationCoordinator(
+        navigatorKey: navigatorKey,
+        shareIntakeService: intakeService,
+        uploadService: _FakeUploadService.withResult(
+          const SharedFitUploadResult(status: SharedFitUploadStatus.success),
+        ),
+        uploadActivity: ShareFlowUploadActivity(),
+        successFeedbackDuration: Duration.zero,
+      );
+
+      addTearDown(coordinator.dispose);
+      addTearDown(intakeService.dispose);
+
+      await tester.pumpWidget(
+        _CoordinatorHost(navigatorKey: navigatorKey, coordinator: coordinator),
+      );
+      await tester.pump();
+
+      intakeService.add(
+        const SharedFitEvent.draft(
+          SharedFitDraft(
+            localFilePath: '/tmp/live.fit',
+            displayName: 'live.fit',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('live.fit'), findsOneWidget);
+
+      initialEventCompleter.complete(
+        const SharedFitEvent.draft(
+          SharedFitDraft(
+            localFilePath: '/tmp/initial.fit',
+            displayName: 'initial.fit',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('live.fit'), findsOneWidget);
+      expect(find.text('initial.fit'), findsNothing);
+    },
+  );
 
   testWidgets('replaces the current confirmation route when idle', (
     WidgetTester tester,
@@ -323,14 +424,21 @@ class _CoordinatorHostState extends State<_CoordinatorHost> {
 }
 
 class _FakeShareIntakeService extends ShareIntakeService {
-  _FakeShareIntakeService({this.initialEvent});
+  _FakeShareIntakeService({
+    this.initialEvent,
+    Future<SharedFitEvent?>? initialEventFuture,
+  }) : _initialEventFuture = initialEventFuture;
 
   final SharedFitEvent? initialEvent;
+  final Future<SharedFitEvent?>? _initialEventFuture;
   final StreamController<SharedFitEvent> _controller =
       StreamController<SharedFitEvent>.broadcast();
 
   @override
   Future<SharedFitEvent?> loadInitialEvent() async {
+    if (_initialEventFuture != null) {
+      return _initialEventFuture;
+    }
     return initialEvent;
   }
 
@@ -350,9 +458,12 @@ class _FakeUploadService extends SharedFitUploadService {
   _FakeUploadService._({required Future<SharedFitUploadResult> Function() call})
     : _call = call,
       super(
-        loadSettings: () async => <String, String>{},
-        executeUpload: ({required file, required settings}) =>
-            throw UnimplementedError(),
+        loadSettings: () async => <String, String>{
+          SettingsService.keyUploadToStrava: 'true',
+          SettingsService.keyStravaClientId: 'client-id',
+          SettingsService.keyStravaClientSecret: 'client-secret',
+          SettingsService.keyStravaRefreshToken: 'refresh-token',
+        },
       );
 
   final Future<SharedFitUploadResult> Function() _call;

@@ -75,6 +75,94 @@ void main() {
   });
 
   group('XingzheClient.uploadFit', () {
+    test(
+      'uploadFit preserves legacy duplicate compatibility by returning existing activity id',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'xingzhe-client-legacy-duplicate-test-',
+        );
+        final File fitFile = File('${tempDir.path}/activity.fit');
+        await fitFile.writeAsBytes(const <int>[1, 2, 3]);
+
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          return ResponseBody.fromString(
+            jsonEncode(<String, dynamic>{
+              'code': 9006,
+              'msg': '文件已上传，已存在活动 12345',
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        });
+
+        final XingzheClient client = XingzheClient(
+          username: 'user',
+          password: 'pass',
+          dio: dio,
+        );
+
+        final int result = await client.uploadFit(fitFile, retries: 1);
+
+        expect(result, 12345);
+      },
+    );
+
+    test(
+      'uploadFitDetailed preserves duplicate success metadata from 9006',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'xingzhe-client-duplicate-test-',
+        );
+        final File fitFile = File('${tempDir.path}/activity.fit');
+        await fitFile.writeAsBytes(const <int>[1, 2, 3]);
+
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          return ResponseBody.fromString(
+            jsonEncode(<String, dynamic>{
+              'code': 9006,
+              'msg': '文件已上传，已存在活动 12345',
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        });
+
+        final XingzheClient client = XingzheClient(
+          username: 'user',
+          password: 'pass',
+          dio: dio,
+        );
+
+        final XingzheUploadFitResult result = await client.uploadFitDetailed(
+          fitFile,
+          retries: 1,
+        );
+
+        expect(result.alreadyUploaded, isTrue);
+        expect(result.uploadId, 0);
+        expect(result.remoteActivityId, 12345);
+        expect(result.message, contains('12345'));
+      },
+    );
+
     test('sanitizes secrets while preserving safe HTTP error detail', () async {
       const String username = 'sensitive-user@example.com';
       const String password = 'SuperSecretPassword!';

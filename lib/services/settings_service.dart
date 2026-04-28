@@ -81,7 +81,8 @@ class SettingsService {
         rethrow;
       }
       storedValues = <String, String>{
-        for (final String key in allKeys) key: (await _store.read(key: key)) ?? '',
+        for (final String key in allKeys)
+          key: (await _store.read(key: key)) ?? '',
       };
     }
 

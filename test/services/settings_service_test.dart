@@ -22,7 +22,8 @@ class _RecordingSecureStoragePlatform extends TestFlutterSecureStoragePlatform {
   }
 }
 
-class _ReadAllFailingSecureStoragePlatform extends TestFlutterSecureStoragePlatform {
+class _ReadAllFailingSecureStoragePlatform
+    extends TestFlutterSecureStoragePlatform {
   _ReadAllFailingSecureStoragePlatform(super.data);
 
   int readAllCallCount = 0;
