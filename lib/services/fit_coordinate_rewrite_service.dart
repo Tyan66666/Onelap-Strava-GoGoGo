@@ -11,7 +11,13 @@ class FitSessionMeta {
   final double? distanceM;
   final int? ascentM;
   final String? sport;
-  const FitSessionMeta({this.distanceM, this.ascentM, this.sport});
+  final String? startTime;
+  const FitSessionMeta({
+    this.distanceM,
+    this.ascentM,
+    this.sport,
+    this.startTime,
+  });
 }
 
 /// 从 FIT 文件解析 session metadata（不修改文件）。
@@ -23,6 +29,7 @@ Future<FitSessionMeta> parseFitSessionMeta(File fitFile) async {
     double? distanceM;
     int? ascentM;
     String? sport;
+    String? startTime;
 
     for (final record in fit.records) {
       final msg = record.message;
@@ -32,11 +39,22 @@ Future<FitSessionMeta> parseFitSessionMeta(File fitFile) async {
         if (msg.sport != null) {
           sport = msg.sport!.name;
         }
+        if (msg.startTime != null) {
+          startTime = DateTime.fromMillisecondsSinceEpoch(
+            msg.startTime!,
+            isUtc: true,
+          ).toIso8601String().replaceFirst(RegExp(r'\.\d+'), '');
+        }
         break; // 只取第一个 session
       }
     }
 
-    return FitSessionMeta(distanceM: distanceM, ascentM: ascentM, sport: sport);
+    return FitSessionMeta(
+      distanceM: distanceM,
+      ascentM: ascentM,
+      sport: sport,
+      startTime: startTime,
+    );
   } catch (_) {
     return const FitSessionMeta();
   }

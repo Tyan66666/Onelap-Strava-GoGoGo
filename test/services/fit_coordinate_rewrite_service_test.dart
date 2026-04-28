@@ -8,6 +8,59 @@ import 'package:onelap_strava_sync/services/fit_coordinate_rewrite_service.dart'
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  group('parseFitSessionMeta', () {
+    test('returns session start time when present', () async {
+      final Directory tempDir = await Directory.systemTemp.createTemp(
+        'fit-session-meta-start-time-',
+      );
+      final File fitFile = File('${tempDir.path}/input.fit');
+      final DateTime expectedStartTime = DateTime.utc(2026, 4, 11, 6, 30, 45);
+
+      await fitFile.writeAsBytes(
+        _buildFitBytes(<Message>[
+          _sessionMessage(startTime: expectedStartTime),
+        ]),
+      );
+
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final FitSessionMeta meta = await parseFitSessionMeta(fitFile);
+
+      expect(
+        meta.startTime,
+        expectedStartTime.toIso8601String().replaceFirst(RegExp(r'\.\d+'), ''),
+      );
+    });
+
+    test('does not use session timestamp as start time when start time is absent', () async {
+      final Directory tempDir = await Directory.systemTemp.createTemp(
+        'fit-session-meta-no-timestamp-fallback-',
+      );
+      final File fitFile = File('${tempDir.path}/input.fit');
+      final DateTime sessionTimestamp = DateTime.utc(2026, 4, 11, 7, 45, 12);
+
+      await fitFile.writeAsBytes(
+        _buildFitBytes(<Message>[
+          _sessionMessage(timestamp: sessionTimestamp, includeStartTime: false),
+        ]),
+      );
+
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final FitSessionMeta meta = await parseFitSessionMeta(fitFile);
+
+      expect(meta.startTime, isNull);
+    });
+  });
+
   group('FitCoordinateRewriteService.rewrite', () {
     test('rewrites RecordMessage position coordinates', () async {
       final Directory tempDir = await Directory.systemTemp.createTemp(
@@ -347,6 +400,9 @@ LapMessage _lapMessage({
 }
 
 SessionMessage _sessionMessage({
+  DateTime? timestamp,
+  DateTime? startTime,
+  bool includeStartTime = true,
   double? startLatitude,
   double? startLongitude,
   double? necLatitude,
@@ -355,8 +411,12 @@ SessionMessage _sessionMessage({
   double? swcLongitude,
 }) {
   final SessionMessage message = SessionMessage();
-  message.timestamp = DateTime.utc(2026, 4, 11, 0, 2).millisecondsSinceEpoch;
-  message.startTime = DateTime.utc(2026, 4, 11).millisecondsSinceEpoch;
+  message.timestamp =
+      (timestamp ?? DateTime.utc(2026, 4, 11, 0, 2)).millisecondsSinceEpoch;
+  if (includeStartTime) {
+    message.startTime =
+        (startTime ?? DateTime.utc(2026, 4, 11)).millisecondsSinceEpoch;
+  }
   if (startLatitude != null) {
     message.startPositionLat = startLatitude;
   }

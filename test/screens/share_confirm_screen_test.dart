@@ -356,6 +356,7 @@ void main() {
     await tester.tap(find.text('上传到 Strava'));
     await tester.pumpAndSettle();
 
+    expect(find.text('上传失败'), findsOneWidget);
     expect(find.text('network error'), findsOneWidget);
     expect(find.text('重新上传'), findsOneWidget);
     expect(dismissed, isFalse);
@@ -508,7 +509,7 @@ void main() {
     },
   );
 
-  testWidgets('partial-success upload shows a mixed outcome message', (
+  testWidgets('partial-success upload uses a partial-success title', (
     WidgetTester tester,
   ) async {
     await pumpScreenAndSettle(
@@ -519,7 +520,7 @@ void main() {
       uploadService: _FakeUploadService.withPlanAndResult(
         plan: _dualPlan(),
         result: const SharedFitUploadResult(
-          status: SharedFitUploadStatus.success,
+          status: SharedFitUploadStatus.partialSuccess,
           message: '已上传到 Strava；行者上传失败：session expired',
         ),
       ),
@@ -529,11 +530,43 @@ void main() {
     await tester.tap(find.text('上传到 Strava 和行者'));
     await tester.pump();
 
-    expect(find.text('上传成功'), findsOneWidget);
+    expect(find.text('部分成功'), findsOneWidget);
     expect(find.text('已上传到 Strava；行者上传失败：session expired'), findsOneWidget);
 
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'partial-success upload uses a partial-success fallback message when service message is absent',
+    (WidgetTester tester) async {
+      await pumpScreenAndSettle(
+        tester,
+        event: const SharedFitEvent.draft(
+          SharedFitDraft(
+            localFilePath: '/tmp/ride.fit',
+            displayName: 'ride.fit',
+          ),
+        ),
+        uploadService: _FakeUploadService.withPlanAndResult(
+          plan: _dualPlan(),
+          result: const SharedFitUploadResult(
+            status: SharedFitUploadStatus.partialSuccess,
+          ),
+        ),
+        successFeedbackDuration: Duration.zero,
+      );
+
+      await tester.tap(find.text('上传到 Strava 和行者'));
+      await tester.pump();
+
+      expect(find.text('部分成功'), findsOneWidget);
+      expect(find.text('FIT 文件已上传，部分目标同步失败。'), findsOneWidget);
+      expect(find.text('FIT 文件已经上传到 Strava 和行者。'), findsNothing);
+      expect(find.textContaining('Strava 和行者'), findsNothing);
+
+      await tester.pumpAndSettle();
+    },
+  );
 
   testWidgets('success screen uses the service-provided success message', (
     WidgetTester tester,

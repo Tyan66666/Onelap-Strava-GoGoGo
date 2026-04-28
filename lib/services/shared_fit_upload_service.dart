@@ -1,14 +1,20 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../models/shared_fit_draft.dart';
+import '../models/sync_record.dart';
+import 'package:crypto/crypto.dart';
+import 'dedupe_service.dart';
 import 'fit_coordinate_rewrite_service.dart';
 import 'fit_upload_coordinator.dart';
 import 'settings_service.dart';
+import 'state_store.dart';
 
 enum SharedFitUploadStatus {
   missingConfiguration,
   invalidFile,
   success,
+  partialSuccess,
   failure,
 }
 
@@ -20,19 +26,39 @@ class SharedFitUploadResult {
 }
 
 typedef SharedFitSettingsLoader = Future<Map<String, String>> Function();
+typedef SharedFitSessionMetaLoader = Future<FitSessionMeta> Function(File file);
+typedef SharedFitFingerprintLoader =
+    Future<String> Function(File file, String startTime, String recordKey);
+typedef SharedFitNow = DateTime Function();
 
 class SharedFitUploadService {
   SharedFitUploadService({
     SharedFitSettingsLoader? loadSettings,
     FitCoordinateRewriteService? rewriteService,
     FitUploadCoordinator? coordinator,
+    StateStore? stateStore,
+    SharedFitSessionMetaLoader? loadFitSessionMeta,
+    SharedFitFingerprintLoader? makeHistoryFingerprint,
+    SharedFitFingerprintLoader? fallbackHistoryFingerprint,
+    SharedFitNow? now,
   }) : _loadSettings = loadSettings ?? SettingsService().loadSettings,
        _rewriteService = rewriteService,
-       _coordinator = coordinator ?? FitUploadCoordinator();
+       _coordinator = coordinator ?? FitUploadCoordinator(),
+       _stateStore = stateStore ?? StateStore(),
+       _loadFitSessionMeta = loadFitSessionMeta ?? parseFitSessionMeta,
+       _makeHistoryFingerprint = makeHistoryFingerprint ?? makeFingerprint,
+       _fallbackHistoryFingerprint =
+           fallbackHistoryFingerprint ?? makeFingerprint,
+       _now = now ?? DateTime.now;
 
   final SharedFitSettingsLoader _loadSettings;
   final FitCoordinateRewriteService? _rewriteService;
   final FitUploadCoordinator _coordinator;
+  final StateStore _stateStore;
+  final SharedFitSessionMetaLoader _loadFitSessionMeta;
+  final SharedFitFingerprintLoader _makeHistoryFingerprint;
+  final SharedFitFingerprintLoader _fallbackHistoryFingerprint;
+  final SharedFitNow _now;
 
   Future<FitUploadPlan> loadUploadPlan() async {
     final Map<String, String> settings = await _loadSettings();
@@ -54,6 +80,7 @@ class SharedFitUploadService {
     }
 
     final Map<String, String> settings;
+    FitSessionMeta sessionMeta = const FitSessionMeta();
     try {
       settings = await _loadSettings();
     } on Exception catch (error) {
@@ -71,13 +98,25 @@ class SharedFitUploadService {
       );
     }
 
+    try {
+      sessionMeta = await _loadFitSessionMeta(file);
+    } on Exception {
+      sessionMeta = const FitSessionMeta();
+    }
+
     File uploadFile = file;
     bool shouldDeleteUploadFile = false;
     if (_isGcjCorrectionEnabled(settings)) {
       final FitCoordinateRewriteService rewriteService =
           _rewriteService ?? FitCoordinateRewriteService();
       try {
-        uploadFile = await rewriteService.rewrite(file);
+        uploadFile = await rewriteService.rewrite(
+          file,
+          options: RewriteOptions(
+            startTime: sessionMeta.startTime,
+            sourceFilename: draft.displayName,
+          ),
+        );
         shouldDeleteUploadFile = uploadFile.path != file.path;
       } on Exception catch (error) {
         return SharedFitUploadResult(
@@ -91,7 +130,30 @@ class SharedFitUploadService {
     try {
       final FitUploadCoordinatorResult coordinatorResult = await _coordinator
           .uploadFile(uploadFile, settings);
-      return _mapCoordinatorResult(coordinatorResult);
+      final SharedFitUploadResult result = _mapCoordinatorResult(
+        coordinatorResult,
+      );
+      try {
+        await _persistSyncHistoryIfNeeded(
+          draft: draft,
+          file: file,
+          plan: plan,
+          coordinatorResult: coordinatorResult,
+          sessionMeta: sessionMeta,
+        );
+      } on Exception {
+        // History persistence is best-effort after upload completes.
+      }
+      try {
+        await _persistDedupeStateIfNeeded(
+          coordinatorResult: coordinatorResult,
+          fingerprint: await _resolveDedupeFingerprint(file, sessionMeta),
+          sessionMeta: sessionMeta,
+        );
+      } on Exception {
+        // Dedupe persistence is best-effort after upload completes.
+      }
+      return result;
     } on Exception catch (error) {
       return SharedFitUploadResult(
         status: SharedFitUploadStatus.failure,
@@ -139,6 +201,213 @@ class SharedFitUploadService {
     }
   }
 
+  Future<void> _persistSyncHistoryIfNeeded({
+    required SharedFitDraft draft,
+    required File file,
+    required FitUploadPlan plan,
+    required FitUploadCoordinatorResult coordinatorResult,
+    required FitSessionMeta sessionMeta,
+  }) async {
+    if (coordinatorResult.platformResults.isEmpty) {
+      return;
+    }
+
+    final DateTime completionTime = _now();
+    final String syncedAt = completionTime.toIso8601String();
+    final String identityStartTime = await _resolveHistoryIdentityStartTime(
+      file,
+      sessionMeta,
+    );
+    final String fingerprint = await _buildHistoryFingerprint(
+      file,
+      identityStartTime,
+    );
+    if (fingerprint.isEmpty) {
+      return;
+    }
+    final String persistedStartTime = await _resolvePersistedHistoryStartTime(
+      completionTime,
+      fingerprint,
+      sessionMeta,
+    );
+
+    final SyncRecord record = SyncRecord(
+      fingerprint: fingerprint,
+      sourceFilename: draft.displayName,
+      startTime: persistedStartTime,
+      syncedAt: completionTime,
+      distanceM: sessionMeta.distanceM,
+      ascentM: sessionMeta.ascentM,
+      sport: sessionMeta.sport,
+      uploadedToStrava: plan.targets.contains(FitUploadPlatform.strava),
+      uploadedToXingzhe: plan.targets.contains(FitUploadPlatform.xingzhe),
+      platformResults: coordinatorResult.platformResults
+          .map(
+            (FitUploadPlatformResult result) => PlatformSyncResult(
+              platform: _mapSyncPlatform(result.platform),
+              status: _mapSyncStatus(result.status),
+              remoteActivityId: result.remoteActivityId,
+              errorMessage: _historyErrorMessage(result),
+              syncedAt: syncedAt,
+            ),
+          )
+          .toList(),
+    );
+
+    await _stateStore.saveSyncRecords(<SyncRecord>[record]);
+  }
+
+  Future<void> _persistDedupeStateIfNeeded({
+    required FitUploadCoordinatorResult coordinatorResult,
+    required String fingerprint,
+    required FitSessionMeta sessionMeta,
+  }) async {
+    if (fingerprint.isEmpty) {
+      return;
+    }
+
+    final List<FitUploadPlatformResult> successfulResults = coordinatorResult
+        .platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.success ||
+              result.status == FitUploadPlatformStatus.alreadyUploaded,
+        )
+        .toList();
+    if (successfulResults.isEmpty) {
+      return;
+    }
+
+    final String? dedupeKey = _dedupeKey(sessionMeta);
+    if (dedupeKey != null) {
+      await _stateStore.markDedupeKey(dedupeKey, fingerprint);
+    }
+
+    for (final FitUploadPlatformResult result in successfulResults) {
+      await _stateStore.markPlatformSynced(
+        fingerprint,
+        result.platform.name,
+        result.remoteActivityId,
+      );
+    }
+  }
+
+  Future<String> _resolveDedupeFingerprint(
+    File file,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String identityStartTime = await _resolveHistoryIdentityStartTime(
+      file,
+      sessionMeta,
+    );
+    return _buildHistoryFingerprint(file, identityStartTime);
+  }
+
+  String? _dedupeKey(FitSessionMeta sessionMeta) {
+    final String startTime = (sessionMeta.startTime ?? '').trim();
+    if (startTime.isEmpty) {
+      return null;
+    }
+
+    final double? distanceM = sessionMeta.distanceM;
+    final String distanceValue = distanceM != null
+        ? '${distanceM.round()}'
+        : 'na';
+    return '${startTime}_$distanceValue';
+  }
+
+  Future<String> _buildHistoryFingerprint(File file, String startTime) async {
+    final String recordKey = _sharedHistoryRecordKey();
+    try {
+      return await _makeHistoryFingerprint(file, startTime, recordKey);
+    } on Exception {
+      try {
+        return await _fallbackHistoryFingerprint(file, startTime, recordKey);
+      } on Exception {
+        return '';
+      }
+    }
+  }
+
+  String _sharedHistoryRecordKey() {
+    return 'shared-fit-upload';
+  }
+
+  Future<String> _resolveHistoryIdentityStartTime(
+    File file,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String parsedStartTime = (sessionMeta.startTime ?? '').trim();
+    if (parsedStartTime.isNotEmpty) {
+      return parsedStartTime;
+    }
+
+    return _stableFileDerivedStartTime(file);
+  }
+
+  Future<String> _resolvePersistedHistoryStartTime(
+    DateTime completionTime,
+    String fingerprint,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String parsedStartTime = (sessionMeta.startTime ?? '').trim();
+    if (parsedStartTime.isNotEmpty) {
+      return parsedStartTime;
+    }
+
+    final List<SyncRecord> existingRecords = await _stateStore.loadSyncRecords(
+      limit: 500,
+    );
+    for (final SyncRecord record in existingRecords) {
+      if (record.fingerprint == fingerprint && record.startTime.isNotEmpty) {
+        return record.startTime;
+      }
+    }
+
+    return completionTime.toUtc().toIso8601String().replaceFirst(
+      RegExp(r'\.\d+'),
+      '',
+    );
+  }
+
+  Future<String> _stableFileDerivedStartTime(File file) async {
+    final Uint8List bytes = await file.readAsBytes();
+    final List<int> digestBytes = sha256.convert(bytes).bytes;
+    int checksum = 0;
+    for (final int unit in digestBytes.take(8)) {
+      checksum = (checksum * 257 + unit) & 0x7fffffff;
+    }
+
+    final int seconds = checksum % 60;
+    final int minutes = (checksum ~/ 60) % 60;
+    final int hours = (checksum ~/ 3600) % 24;
+    final int days = ((checksum ~/ 86400) % 28) + 1;
+    return '1970-01-${days.toString().padLeft(2, '0')}T${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}Z';
+  }
+
+  SyncPlatform _mapSyncPlatform(FitUploadPlatform platform) {
+    return switch (platform) {
+      FitUploadPlatform.strava => SyncPlatform.strava,
+      FitUploadPlatform.xingzhe => SyncPlatform.xingzhe,
+    };
+  }
+
+  SyncStatus _mapSyncStatus(FitUploadPlatformStatus status) {
+    return switch (status) {
+      FitUploadPlatformStatus.success => SyncStatus.success,
+      FitUploadPlatformStatus.alreadyUploaded => SyncStatus.deduped,
+      FitUploadPlatformStatus.failure => SyncStatus.failed,
+    };
+  }
+
+  String? _historyErrorMessage(FitUploadPlatformResult result) {
+    if (result.status == FitUploadPlatformStatus.alreadyUploaded) {
+      return null;
+    }
+
+    return result.message;
+  }
+
   SharedFitUploadResult _mapCoordinatorResult(
     FitUploadCoordinatorResult coordinatorResult,
   ) {
@@ -154,7 +423,7 @@ class SharedFitUploadService {
         );
       case FitUploadCoordinatorStatus.partialSuccess:
         return SharedFitUploadResult(
-          status: SharedFitUploadStatus.success,
+          status: SharedFitUploadStatus.partialSuccess,
           message: _buildPartialSuccessMessage(
             coordinatorResult.platformResults,
           ),

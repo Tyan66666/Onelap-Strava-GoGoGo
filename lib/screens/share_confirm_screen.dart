@@ -14,6 +14,7 @@ enum _ShareConfirmState {
   missingConfiguration,
   invalidFile,
   failure,
+  partialSuccess,
   success,
   error,
 }
@@ -122,6 +123,17 @@ class _ShareConfirmScreenState extends State<ShareConfirmScreen> {
           }
           widget.onDismissToHome?.call();
           return;
+        case SharedFitUploadStatus.partialSuccess:
+          setState(() {
+            _state = _ShareConfirmState.partialSuccess;
+            _message = result.message;
+          });
+          await Future<void>.delayed(widget.successFeedbackDuration);
+          if (!mounted) {
+            return;
+          }
+          widget.onDismissToHome?.call();
+          return;
         case SharedFitUploadStatus.failure:
           setState(() {
             _state = _ShareConfirmState.failure;
@@ -207,6 +219,7 @@ class _ShareConfirmScreenState extends State<ShareConfirmScreen> {
         ];
       case _ShareConfirmState.invalidFile:
       case _ShareConfirmState.error:
+      case _ShareConfirmState.partialSuccess:
       case _ShareConfirmState.success:
         return <Widget>[
           TextButton(
@@ -232,11 +245,14 @@ class _ShareConfirmScreenState extends State<ShareConfirmScreen> {
       case _ShareConfirmState.preflightFailure:
       case _ShareConfirmState.confirm:
       case _ShareConfirmState.uploading:
-      case _ShareConfirmState.failure:
       case _ShareConfirmState.missingConfiguration:
         return displayName;
+      case _ShareConfirmState.failure:
+        return '上传失败';
       case _ShareConfirmState.invalidFile:
         return '文件无效';
+      case _ShareConfirmState.partialSuccess:
+        return '部分成功';
       case _ShareConfirmState.success:
         return '上传成功';
       case _ShareConfirmState.error:
@@ -260,6 +276,8 @@ class _ShareConfirmScreenState extends State<ShareConfirmScreen> {
         return '这个共享文件不是可上传的 FIT 文件。';
       case _ShareConfirmState.failure:
         return _message ?? '上传失败，请重试。';
+      case _ShareConfirmState.partialSuccess:
+        return _message ?? 'FIT 文件已上传，部分目标同步失败。';
       case _ShareConfirmState.success:
         return _message ?? 'FIT 文件已经上传到 $_targetLabel。';
       case _ShareConfirmState.error:
