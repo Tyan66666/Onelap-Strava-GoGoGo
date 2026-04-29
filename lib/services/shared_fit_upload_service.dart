@@ -1,14 +1,20 @@
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'fit_coordinate_rewrite_service.dart';
-import 'settings_service.dart';
-import 'strava_client.dart';
 import '../models/shared_fit_draft.dart';
+import '../models/sync_record.dart';
+import 'package:crypto/crypto.dart';
+import 'dedupe_service.dart';
+import 'fit_coordinate_rewrite_service.dart';
+import 'fit_upload_coordinator.dart';
+import 'settings_service.dart';
+import 'state_store.dart';
 
 enum SharedFitUploadStatus {
   missingConfiguration,
   invalidFile,
   success,
+  partialSuccess,
   failure,
 }
 
@@ -20,24 +26,44 @@ class SharedFitUploadResult {
 }
 
 typedef SharedFitSettingsLoader = Future<Map<String, String>> Function();
-typedef SharedFitUploadExecutor =
-    Future<void> Function({
-      required File file,
-      required Map<String, String> settings,
-    });
+typedef SharedFitSessionMetaLoader = Future<FitSessionMeta> Function(File file);
+typedef SharedFitFingerprintLoader =
+    Future<String> Function(File file, String startTime, String recordKey);
+typedef SharedFitNow = DateTime Function();
 
 class SharedFitUploadService {
   SharedFitUploadService({
     SharedFitSettingsLoader? loadSettings,
     FitCoordinateRewriteService? rewriteService,
-    SharedFitUploadExecutor? executeUpload,
+    FitUploadCoordinator? coordinator,
+    StateStore? stateStore,
+    SharedFitSessionMetaLoader? loadFitSessionMeta,
+    SharedFitFingerprintLoader? makeHistoryFingerprint,
+    SharedFitFingerprintLoader? fallbackHistoryFingerprint,
+    SharedFitNow? now,
   }) : _loadSettings = loadSettings ?? SettingsService().loadSettings,
        _rewriteService = rewriteService,
-       _executeUpload = executeUpload ?? _defaultExecuteUpload;
+       _coordinator = coordinator ?? FitUploadCoordinator(),
+       _stateStore = stateStore ?? StateStore(),
+       _loadFitSessionMeta = loadFitSessionMeta ?? parseFitSessionMeta,
+       _makeHistoryFingerprint = makeHistoryFingerprint ?? makeFingerprint,
+       _fallbackHistoryFingerprint =
+           fallbackHistoryFingerprint ?? makeFingerprint,
+       _now = now ?? DateTime.now;
 
   final SharedFitSettingsLoader _loadSettings;
   final FitCoordinateRewriteService? _rewriteService;
-  final SharedFitUploadExecutor _executeUpload;
+  final FitUploadCoordinator _coordinator;
+  final StateStore _stateStore;
+  final SharedFitSessionMetaLoader _loadFitSessionMeta;
+  final SharedFitFingerprintLoader _makeHistoryFingerprint;
+  final SharedFitFingerprintLoader _fallbackHistoryFingerprint;
+  final SharedFitNow _now;
+
+  Future<FitUploadPlan> loadUploadPlan() async {
+    final Map<String, String> settings = await _loadSettings();
+    return _coordinator.resolveUploadPlan(settings);
+  }
 
   Future<SharedFitUploadResult> uploadDraft(SharedFitDraft draft) async {
     if (!_hasFitExtension(draft)) {
@@ -54,6 +80,7 @@ class SharedFitUploadService {
     }
 
     final Map<String, String> settings;
+    FitSessionMeta sessionMeta = const FitSessionMeta();
     try {
       settings = await _loadSettings();
     } on Exception catch (error) {
@@ -64,10 +91,17 @@ class SharedFitUploadService {
       );
     }
 
-    if (!_hasRequiredStravaConfiguration(settings)) {
+    final FitUploadPlan plan = _coordinator.resolveUploadPlan(settings);
+    if (plan.hasMissingConfiguration) {
       return const SharedFitUploadResult(
         status: SharedFitUploadStatus.missingConfiguration,
       );
+    }
+
+    try {
+      sessionMeta = await _loadFitSessionMeta(file);
+    } on Exception {
+      sessionMeta = const FitSessionMeta();
     }
 
     File uploadFile = file;
@@ -76,7 +110,13 @@ class SharedFitUploadService {
       final FitCoordinateRewriteService rewriteService =
           _rewriteService ?? FitCoordinateRewriteService();
       try {
-        uploadFile = await rewriteService.rewrite(file);
+        uploadFile = await rewriteService.rewrite(
+          file,
+          options: RewriteOptions(
+            startTime: sessionMeta.startTime,
+            sourceFilename: draft.displayName,
+          ),
+        );
         shouldDeleteUploadFile = uploadFile.path != file.path;
       } on Exception catch (error) {
         return SharedFitUploadResult(
@@ -88,17 +128,37 @@ class SharedFitUploadService {
     }
 
     try {
+      final FitUploadCoordinatorResult coordinatorResult = await _coordinator
+          .uploadFile(uploadFile, settings);
+      final SharedFitUploadResult result = _mapCoordinatorResult(
+        coordinatorResult,
+      );
       try {
-        await _executeUpload(file: uploadFile, settings: settings);
-        return const SharedFitUploadResult(
-          status: SharedFitUploadStatus.success,
+        await _persistSyncHistoryIfNeeded(
+          draft: draft,
+          file: file,
+          plan: plan,
+          coordinatorResult: coordinatorResult,
+          sessionMeta: sessionMeta,
         );
-      } on Exception catch (error) {
-        return SharedFitUploadResult(
-          status: SharedFitUploadStatus.failure,
-          message: '$error'.replaceFirst('Exception: ', ''),
-        );
+      } on Exception {
+        // History persistence is best-effort after upload completes.
       }
+      try {
+        await _persistDedupeStateIfNeeded(
+          coordinatorResult: coordinatorResult,
+          fingerprint: await _resolveDedupeFingerprint(file, sessionMeta),
+          sessionMeta: sessionMeta,
+        );
+      } on Exception {
+        // Dedupe persistence is best-effort after upload completes.
+      }
+      return result;
+    } on Exception catch (error) {
+      return SharedFitUploadResult(
+        status: SharedFitUploadStatus.failure,
+        message: '$error'.replaceFirst('Exception: ', ''),
+      );
     } finally {
       if (shouldDeleteUploadFile) {
         await _deleteTempUploadFile(uploadFile);
@@ -111,21 +171,11 @@ class SharedFitUploadService {
         draft.displayName.toLowerCase().endsWith('.fit');
   }
 
-  bool _hasRequiredStravaConfiguration(Map<String, String> settings) {
-    return _hasValue(settings, SettingsService.keyStravaClientId) &&
-        _hasValue(settings, SettingsService.keyStravaClientSecret) &&
-        _hasValue(settings, SettingsService.keyStravaRefreshToken);
-  }
-
   bool _isGcjCorrectionEnabled(Map<String, String> settings) {
     return (settings[SettingsService.keyGcjCorrectionEnabled] ?? '')
             .trim()
             .toLowerCase() ==
         'true';
-  }
-
-  bool _hasValue(Map<String, String> settings, String key) {
-    return (settings[key] ?? '').trim().isNotEmpty;
   }
 
   Future<bool> _isReadableFile(File file) async {
@@ -151,28 +201,335 @@ class SharedFitUploadService {
     }
   }
 
-  static Future<void> _defaultExecuteUpload({
+  Future<void> _persistSyncHistoryIfNeeded({
+    required SharedFitDraft draft,
     required File file,
-    required Map<String, String> settings,
+    required FitUploadPlan plan,
+    required FitUploadCoordinatorResult coordinatorResult,
+    required FitSessionMeta sessionMeta,
   }) async {
-    final StravaClient client = StravaClient(
-      clientId: settings[SettingsService.keyStravaClientId] ?? '',
-      clientSecret: settings[SettingsService.keyStravaClientSecret] ?? '',
-      refreshToken: settings[SettingsService.keyStravaRefreshToken] ?? '',
-      accessToken: settings[SettingsService.keyStravaAccessToken] ?? '',
-      expiresAt:
-          int.tryParse(settings[SettingsService.keyStravaExpiresAt] ?? '') ?? 0,
-    );
-    final int uploadId = await client.uploadFit(file);
-    final Map<String, dynamic> result = await client.pollUpload(uploadId);
-    final Object? activityId = result['activity_id'];
-    final Object? error = result['error'];
-    if (activityId != null) {
+    if (coordinatorResult.platformResults.isEmpty) {
       return;
     }
-    if (error != null) {
-      throw Exception('$error');
+
+    final DateTime completionTime = _now();
+    final String syncedAt = completionTime.toIso8601String();
+    final String identityStartTime = await _resolveHistoryIdentityStartTime(
+      file,
+      sessionMeta,
+    );
+    final String fingerprint = await _buildHistoryFingerprint(
+      file,
+      identityStartTime,
+    );
+    if (fingerprint.isEmpty) {
+      return;
     }
-    throw Exception('Strava upload did not complete');
+    final String persistedStartTime = await _resolvePersistedHistoryStartTime(
+      completionTime,
+      fingerprint,
+      sessionMeta,
+    );
+
+    final SyncRecord record = SyncRecord(
+      fingerprint: fingerprint,
+      sourceFilename: draft.displayName,
+      startTime: persistedStartTime,
+      syncedAt: completionTime,
+      distanceM: sessionMeta.distanceM,
+      ascentM: sessionMeta.ascentM,
+      sport: sessionMeta.sport,
+      uploadedToStrava: plan.targets.contains(FitUploadPlatform.strava),
+      uploadedToXingzhe: plan.targets.contains(FitUploadPlatform.xingzhe),
+      platformResults: coordinatorResult.platformResults
+          .map(
+            (FitUploadPlatformResult result) => PlatformSyncResult(
+              platform: _mapSyncPlatform(result.platform),
+              status: _mapSyncStatus(result.status),
+              remoteActivityId: result.remoteActivityId,
+              errorMessage: _historyErrorMessage(result),
+              syncedAt: syncedAt,
+            ),
+          )
+          .toList(),
+    );
+
+    await _stateStore.saveSyncRecords(<SyncRecord>[record]);
+  }
+
+  Future<void> _persistDedupeStateIfNeeded({
+    required FitUploadCoordinatorResult coordinatorResult,
+    required String fingerprint,
+    required FitSessionMeta sessionMeta,
+  }) async {
+    if (fingerprint.isEmpty) {
+      return;
+    }
+
+    final List<FitUploadPlatformResult> successfulResults = coordinatorResult
+        .platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.success ||
+              result.status == FitUploadPlatformStatus.alreadyUploaded,
+        )
+        .toList();
+    if (successfulResults.isEmpty) {
+      return;
+    }
+
+    final String? dedupeKey = _dedupeKey(sessionMeta);
+    if (dedupeKey != null) {
+      await _stateStore.markDedupeKey(dedupeKey, fingerprint);
+    }
+
+    for (final FitUploadPlatformResult result in successfulResults) {
+      await _stateStore.markPlatformSynced(
+        fingerprint,
+        result.platform.name,
+        result.remoteActivityId,
+      );
+    }
+  }
+
+  Future<String> _resolveDedupeFingerprint(
+    File file,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String identityStartTime = await _resolveHistoryIdentityStartTime(
+      file,
+      sessionMeta,
+    );
+    return _buildHistoryFingerprint(file, identityStartTime);
+  }
+
+  String? _dedupeKey(FitSessionMeta sessionMeta) {
+    final String startTime = (sessionMeta.startTime ?? '').trim();
+    if (startTime.isEmpty) {
+      return null;
+    }
+
+    final double? distanceM = sessionMeta.distanceM;
+    final String distanceValue = distanceM != null
+        ? '${distanceM.round()}'
+        : 'na';
+    return '${startTime}_$distanceValue';
+  }
+
+  Future<String> _buildHistoryFingerprint(File file, String startTime) async {
+    final String recordKey = _sharedHistoryRecordKey();
+    try {
+      return await _makeHistoryFingerprint(file, startTime, recordKey);
+    } on Exception {
+      try {
+        return await _fallbackHistoryFingerprint(file, startTime, recordKey);
+      } on Exception {
+        return '';
+      }
+    }
+  }
+
+  String _sharedHistoryRecordKey() {
+    return 'shared-fit-upload';
+  }
+
+  Future<String> _resolveHistoryIdentityStartTime(
+    File file,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String parsedStartTime = (sessionMeta.startTime ?? '').trim();
+    if (parsedStartTime.isNotEmpty) {
+      return parsedStartTime;
+    }
+
+    return _stableFileDerivedStartTime(file);
+  }
+
+  Future<String> _resolvePersistedHistoryStartTime(
+    DateTime completionTime,
+    String fingerprint,
+    FitSessionMeta sessionMeta,
+  ) async {
+    final String parsedStartTime = (sessionMeta.startTime ?? '').trim();
+    if (parsedStartTime.isNotEmpty) {
+      return parsedStartTime;
+    }
+
+    final List<SyncRecord> existingRecords = await _stateStore.loadSyncRecords(
+      limit: 500,
+    );
+    for (final SyncRecord record in existingRecords) {
+      if (record.fingerprint == fingerprint && record.startTime.isNotEmpty) {
+        return record.startTime;
+      }
+    }
+
+    return completionTime.toUtc().toIso8601String().replaceFirst(
+      RegExp(r'\.\d+'),
+      '',
+    );
+  }
+
+  Future<String> _stableFileDerivedStartTime(File file) async {
+    final Uint8List bytes = await file.readAsBytes();
+    final List<int> digestBytes = sha256.convert(bytes).bytes;
+    int checksum = 0;
+    for (final int unit in digestBytes.take(8)) {
+      checksum = (checksum * 257 + unit) & 0x7fffffff;
+    }
+
+    final int seconds = checksum % 60;
+    final int minutes = (checksum ~/ 60) % 60;
+    final int hours = (checksum ~/ 3600) % 24;
+    final int days = ((checksum ~/ 86400) % 28) + 1;
+    return '1970-01-${days.toString().padLeft(2, '0')}T${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}Z';
+  }
+
+  SyncPlatform _mapSyncPlatform(FitUploadPlatform platform) {
+    return switch (platform) {
+      FitUploadPlatform.strava => SyncPlatform.strava,
+      FitUploadPlatform.xingzhe => SyncPlatform.xingzhe,
+    };
+  }
+
+  SyncStatus _mapSyncStatus(FitUploadPlatformStatus status) {
+    return switch (status) {
+      FitUploadPlatformStatus.success => SyncStatus.success,
+      FitUploadPlatformStatus.alreadyUploaded => SyncStatus.deduped,
+      FitUploadPlatformStatus.failure => SyncStatus.failed,
+    };
+  }
+
+  String? _historyErrorMessage(FitUploadPlatformResult result) {
+    if (result.status == FitUploadPlatformStatus.alreadyUploaded) {
+      return null;
+    }
+
+    return result.message;
+  }
+
+  SharedFitUploadResult _mapCoordinatorResult(
+    FitUploadCoordinatorResult coordinatorResult,
+  ) {
+    switch (coordinatorResult.status) {
+      case FitUploadCoordinatorStatus.missingConfiguration:
+        return const SharedFitUploadResult(
+          status: SharedFitUploadStatus.missingConfiguration,
+        );
+      case FitUploadCoordinatorStatus.success:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.success,
+          message: _buildSuccessMessage(coordinatorResult.platformResults),
+        );
+      case FitUploadCoordinatorStatus.partialSuccess:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.partialSuccess,
+          message: _buildPartialSuccessMessage(
+            coordinatorResult.platformResults,
+          ),
+        );
+      case FitUploadCoordinatorStatus.failure:
+        return SharedFitUploadResult(
+          status: SharedFitUploadStatus.failure,
+          message: _buildFailureMessage(coordinatorResult.platformResults),
+        );
+    }
+  }
+
+  String? _buildSuccessMessage(List<FitUploadPlatformResult> platformResults) {
+    final List<String> successfulTargets = _successfulTargetLabels(
+      platformResults,
+    );
+    if (successfulTargets.isEmpty) {
+      return null;
+    }
+
+    return 'FIT 文件已经上传到 ${_joinTargetLabels(successfulTargets)}。';
+  }
+
+  String? _buildPartialSuccessMessage(
+    List<FitUploadPlatformResult> platformResults,
+  ) {
+    final List<String> successfulTargets = _successfulTargetLabels(
+      platformResults,
+    );
+    final List<String> failureMessages = platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.failure,
+        )
+        .map(
+          (FitUploadPlatformResult result) =>
+              '${_platformLabel(result.platform)}上传失败${_formatFailureDetail(result.message)}',
+        )
+        .toList();
+
+    if (successfulTargets.isEmpty) {
+      return _buildFailureMessage(platformResults);
+    }
+
+    if (failureMessages.isEmpty) {
+      return 'FIT 文件已经上传到 ${_joinTargetLabels(successfulTargets)}。';
+    }
+
+    return '已上传到 ${_joinTargetLabels(successfulTargets)}；${failureMessages.join('；')}';
+  }
+
+  String? _buildFailureMessage(List<FitUploadPlatformResult> platformResults) {
+    final List<String> failureMessages = platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.failure,
+        )
+        .map(
+          (FitUploadPlatformResult result) =>
+              '${_platformLabel(result.platform)}上传失败${_formatFailureDetail(result.message)}',
+        )
+        .toList();
+
+    if (failureMessages.isNotEmpty) {
+      return failureMessages.join('；');
+    }
+
+    return null;
+  }
+
+  List<String> _successfulTargetLabels(
+    List<FitUploadPlatformResult> platformResults,
+  ) {
+    return platformResults
+        .where(
+          (FitUploadPlatformResult result) =>
+              result.status == FitUploadPlatformStatus.success ||
+              result.status == FitUploadPlatformStatus.alreadyUploaded,
+        )
+        .map(
+          (FitUploadPlatformResult result) => _platformLabel(result.platform),
+        )
+        .toList();
+  }
+
+  String _joinTargetLabels(List<String> labels) {
+    if (labels.length == 2) {
+      return '${labels.first} 和${labels.last}';
+    }
+
+    return labels.join('、');
+  }
+
+  String _platformLabel(FitUploadPlatform platform) {
+    return switch (platform) {
+      FitUploadPlatform.strava => 'Strava',
+      FitUploadPlatform.xingzhe => '行者',
+    };
+  }
+
+  String _formatFailureDetail(String? message) {
+    final String trimmedMessage = (message ?? '').trim();
+    if (trimmedMessage.isEmpty) {
+      return '';
+    }
+
+    return '：$trimmedMessage';
   }
 }

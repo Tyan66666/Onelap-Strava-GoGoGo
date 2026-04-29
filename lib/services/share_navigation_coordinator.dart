@@ -45,6 +45,8 @@ class ShareNavigationCoordinator {
   StreamSubscription<SharedFitEvent>? _eventsSubscription;
   bool _started = false;
   bool _showingShareRoute = false;
+  bool _loadingInitialEvent = false;
+  bool _showedLiveEventDuringStartup = false;
   int _routeToken = 0;
 
   void start() {
@@ -60,32 +62,40 @@ class ShareNavigationCoordinator {
   }
 
   Future<void> _startAsync() async {
+    _loadingInitialEvent = true;
+    _eventsSubscription = _shareIntakeService.events.listen(
+      (SharedFitEvent event) {
+        final bool didShowEvent = _showEvent(event);
+        if (_loadingInitialEvent && didShowEvent) {
+          _showedLiveEventDuringStartup = true;
+        }
+      },
+      onError: (_) {},
+    );
+
     try {
       final SharedFitEvent? initialEvent = await _shareIntakeService
           .loadInitialEvent();
-      if (initialEvent != null) {
+      if (initialEvent != null && !_showedLiveEventDuringStartup) {
         _showEvent(initialEvent);
       }
     } on MissingPluginException {
       // Share intake is optional outside the native share entrypoint.
     } on PlatformException {
       // Ignore platform startup failures and keep the app usable.
+    } finally {
+      _loadingInitialEvent = false;
     }
-
-    _eventsSubscription = _shareIntakeService.events.listen(
-      _showEvent,
-      onError: (_) {},
-    );
   }
 
-  void _showEvent(SharedFitEvent event) {
+  bool _showEvent(SharedFitEvent event) {
     if (_uploadActivity.isUploadActive) {
-      return;
+      return false;
     }
 
     final NavigatorState? navigator = _navigatorKey.currentState;
     if (navigator == null) {
-      return;
+      return false;
     }
 
     final Route<void> route = MaterialPageRoute<void>(
@@ -101,10 +111,11 @@ class ShareNavigationCoordinator {
 
     if (_showingShareRoute) {
       _trackShareRoute(navigator.pushReplacement<void, void>(route));
-      return;
+      return true;
     }
 
     _trackShareRoute(navigator.push<void>(route));
+    return true;
   }
 
   void _trackShareRoute(Future<dynamic> routeFuture) {
