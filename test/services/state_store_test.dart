@@ -137,54 +137,60 @@ void main() {
       },
     );
 
-    test('round-trips a shared upload record with mixed platform results', () async {
-      final StateStore store = StateStore();
-      final DateTime syncedAt = DateTime.parse('2026-04-13T10:11:12Z');
-      final SyncRecord record = SyncRecord(
-        fingerprint: '',
-        sourceFilename: 'shared.fit',
-        startTime: '2026-04-13T08:09:10Z',
-        syncedAt: syncedAt,
-        distanceM: 23456,
-        ascentM: 456,
-        sport: 'cycling',
-        uploadedToStrava: true,
-        uploadedToXingzhe: true,
-        platformResults: <PlatformSyncResult>[
-          PlatformSyncResult(
-            platform: SyncPlatform.strava,
-            status: SyncStatus.success,
-            remoteActivityId: 789,
-            syncedAt: syncedAt.toIso8601String(),
-          ),
-          PlatformSyncResult(
-            platform: SyncPlatform.xingzhe,
-            status: SyncStatus.failed,
-            errorMessage: 'session expired',
-            syncedAt: syncedAt.toIso8601String(),
-          ),
-        ],
-      );
+    test(
+      'round-trips a shared upload record with mixed platform results',
+      () async {
+        final StateStore store = StateStore();
+        final DateTime syncedAt = DateTime.parse('2026-04-13T10:11:12Z');
+        final SyncRecord record = SyncRecord(
+          fingerprint: '',
+          sourceFilename: 'shared.fit',
+          startTime: '2026-04-13T08:09:10Z',
+          syncedAt: syncedAt,
+          distanceM: 23456,
+          ascentM: 456,
+          sport: 'cycling',
+          uploadedToStrava: true,
+          uploadedToXingzhe: true,
+          platformResults: <PlatformSyncResult>[
+            PlatformSyncResult(
+              platform: SyncPlatform.strava,
+              status: SyncStatus.success,
+              remoteActivityId: 789,
+              syncedAt: syncedAt.toIso8601String(),
+            ),
+            PlatformSyncResult(
+              platform: SyncPlatform.xingzhe,
+              status: SyncStatus.failed,
+              errorMessage: 'session expired',
+              syncedAt: syncedAt.toIso8601String(),
+            ),
+          ],
+        );
 
-      await store.saveSyncRecords(<SyncRecord>[record]);
+        await store.saveSyncRecords(<SyncRecord>[record]);
 
-      final List<SyncRecord> loaded = await store.loadSyncRecords(limit: 10);
+        final List<SyncRecord> loaded = await store.loadSyncRecords(limit: 10);
 
-      expect(loaded, hasLength(1));
-      expect(loaded.single.sourceFilename, 'shared.fit');
-      expect(loaded.single.startTime, '2026-04-13T08:09:10Z');
-      expect(loaded.single.distanceM, 23456);
-      expect(loaded.single.ascentM, 456);
-      expect(loaded.single.sport, 'cycling');
-      expect(loaded.single.uploadedToStrava, isTrue);
-      expect(loaded.single.uploadedToXingzhe, isTrue);
-      expect(loaded.single.platformResults, hasLength(2));
-      expect(loaded.single.platformResults[0].platform, SyncPlatform.strava);
-      expect(loaded.single.platformResults[0].status, SyncStatus.success);
-      expect(loaded.single.platformResults[0].remoteActivityId, 789);
-      expect(loaded.single.platformResults[1].platform, SyncPlatform.xingzhe);
-      expect(loaded.single.platformResults[1].status, SyncStatus.failed);
-      expect(loaded.single.platformResults[1].errorMessage, 'session expired');
-    });
+        expect(loaded, hasLength(1));
+        expect(loaded.single.sourceFilename, 'shared.fit');
+        expect(loaded.single.startTime, '2026-04-13T08:09:10Z');
+        expect(loaded.single.distanceM, 23456);
+        expect(loaded.single.ascentM, 456);
+        expect(loaded.single.sport, 'cycling');
+        expect(loaded.single.uploadedToStrava, isTrue);
+        expect(loaded.single.uploadedToXingzhe, isTrue);
+        expect(loaded.single.platformResults, hasLength(2));
+        expect(loaded.single.platformResults[0].platform, SyncPlatform.strava);
+        expect(loaded.single.platformResults[0].status, SyncStatus.success);
+        expect(loaded.single.platformResults[0].remoteActivityId, 789);
+        expect(loaded.single.platformResults[1].platform, SyncPlatform.xingzhe);
+        expect(loaded.single.platformResults[1].status, SyncStatus.failed);
+        expect(
+          loaded.single.platformResults[1].errorMessage,
+          'session expired',
+        );
+      },
+    );
   });
 }

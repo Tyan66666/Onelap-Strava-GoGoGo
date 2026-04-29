@@ -63,15 +63,14 @@ class ShareNavigationCoordinator {
 
   Future<void> _startAsync() async {
     _loadingInitialEvent = true;
-    _eventsSubscription = _shareIntakeService.events.listen(
-      (SharedFitEvent event) {
-        final bool didShowEvent = _showEvent(event);
-        if (_loadingInitialEvent && didShowEvent) {
-          _showedLiveEventDuringStartup = true;
-        }
-      },
-      onError: (_) {},
-    );
+    _eventsSubscription = _shareIntakeService.events.listen((
+      SharedFitEvent event,
+    ) {
+      final bool didShowEvent = _showEvent(event);
+      if (_loadingInitialEvent && didShowEvent) {
+        _showedLiveEventDuringStartup = true;
+      }
+    }, onError: (_) {});
 
     try {
       final SharedFitEvent? initialEvent = await _shareIntakeService

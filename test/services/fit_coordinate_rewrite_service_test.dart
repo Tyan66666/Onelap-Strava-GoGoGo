@@ -36,29 +36,35 @@ void main() {
       );
     });
 
-    test('does not use session timestamp as start time when start time is absent', () async {
-      final Directory tempDir = await Directory.systemTemp.createTemp(
-        'fit-session-meta-no-timestamp-fallback-',
-      );
-      final File fitFile = File('${tempDir.path}/input.fit');
-      final DateTime sessionTimestamp = DateTime.utc(2026, 4, 11, 7, 45, 12);
+    test(
+      'does not use session timestamp as start time when start time is absent',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'fit-session-meta-no-timestamp-fallback-',
+        );
+        final File fitFile = File('${tempDir.path}/input.fit');
+        final DateTime sessionTimestamp = DateTime.utc(2026, 4, 11, 7, 45, 12);
 
-      await fitFile.writeAsBytes(
-        _buildFitBytes(<Message>[
-          _sessionMessage(timestamp: sessionTimestamp, includeStartTime: false),
-        ]),
-      );
+        await fitFile.writeAsBytes(
+          _buildFitBytes(<Message>[
+            _sessionMessage(
+              timestamp: sessionTimestamp,
+              includeStartTime: false,
+            ),
+          ]),
+        );
 
-      addTearDown(() async {
-        if (await tempDir.exists()) {
-          await tempDir.delete(recursive: true);
-        }
-      });
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
 
-      final FitSessionMeta meta = await parseFitSessionMeta(fitFile);
+        final FitSessionMeta meta = await parseFitSessionMeta(fitFile);
 
-      expect(meta.startTime, isNull);
-    });
+        expect(meta.startTime, isNull);
+      },
+    );
   });
 
   group('FitCoordinateRewriteService.rewrite', () {
