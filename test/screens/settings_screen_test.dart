@@ -213,8 +213,8 @@ void main() {
 
     await enterVisibleText(tester, 'OneLap 用户名', 'rider@example.com');
     await enterVisibleText(tester, 'OneLap 密码', 'onelap-pass');
-    await enterVisibleText(tester, 'Strava Client ID', '12345');
-    await enterVisibleText(tester, 'Strava Client Secret', 'secret-xyz');
+    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
+    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
 
     await tapVisibleText(tester, '授权 Strava');
 
@@ -463,7 +463,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'Strava Client ID', 'new-client-id');
+    await enterVisibleText(tester, 'Client ID（客户端ID）', 'new-client-id');
     await enterVisibleText(tester, '同步最近几天（默认 3）', '0');
 
     await tapVisibleText(tester, '保存');
@@ -492,7 +492,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'Strava Client ID', 'client-id');
+    await enterVisibleText(tester, 'Client ID（客户端ID）', 'client-id');
     await tapVisibleText(tester, '保存');
 
     expect(find.text('设置保存失败: Exception: save failed'), findsOneWidget);
@@ -742,8 +742,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'Strava Client ID', '12345');
-    await enterVisibleText(tester, 'Strava Client Secret', 'secret-xyz');
+    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
+    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
 
     await tapVisibleText(tester, '保存');
 
@@ -775,8 +775,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'Strava Client ID', '12345');
-    await enterVisibleText(tester, 'Strava Client Secret', 'secret-xyz');
+    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
+    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
     await enterVisibleText(tester, '同步最近几天（默认 3）', '0');
 
     await tapVisibleText(tester, '授权 Strava');
