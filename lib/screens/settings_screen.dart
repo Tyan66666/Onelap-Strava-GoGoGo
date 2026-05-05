@@ -63,11 +63,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _labels = {
     SettingsService.keyOneLapUsername: 'OneLap 用户名',
     SettingsService.keyOneLapPassword: 'OneLap 密码',
-    SettingsService.keyStravaClientId: 'Strava Client ID',
-    SettingsService.keyStravaClientSecret: 'Strava Client Secret',
-    SettingsService.keyStravaRefreshToken: 'Strava Refresh Token',
-    SettingsService.keyStravaAccessToken: 'Strava Access Token',
-    SettingsService.keyStravaExpiresAt: 'Strava Expires At (Unix timestamp)',
+    SettingsService.keyStravaClientId: 'Client ID（客户端ID）',
+    SettingsService.keyStravaClientSecret: 'Client Secret（客户端密钥）',
+    SettingsService.keyStravaAccessToken: 'Access Token（访问令牌）',
+    SettingsService.keyStravaRefreshToken: 'Refresh Token（刷新令牌）',
+    SettingsService.keyStravaExpiresAt: 'Expires At（过期时间，Unix 时间戳）',
     SettingsService.keyXingzheUsername: '行者 用户名',
     SettingsService.keyXingzhePassword: '行者 密码',
     SettingsService.keyLookbackDays: '同步最近几天（默认 3）',
@@ -566,8 +566,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const Text(
                 '2. 创建一个新应用，"Authorization Callback Domain" 填写 localhost\n'
-                '3. 创建后复制 Client ID 和 Client Secret 填入此处\n'
-                '4. 点击"授权 Strava"按钮完成授权，Access Token、Refresh Token 和 Expires At 将自动填入',
+                '3. 创建后复制 Client ID（客户端ID）和 Client Secret（客户端密钥）填入此处\n'
+                '4. 点击"授权 Strava"按钮完成授权，Access Token（访问令牌）、Refresh Token（刷新令牌）和 Expires At 将自动填入',
                 style: TextStyle(fontSize: 14, height: 1.5),
               ),
             ],
@@ -736,8 +736,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           for (final key in [
             SettingsService.keyStravaClientId,
             SettingsService.keyStravaClientSecret,
-            SettingsService.keyStravaRefreshToken,
             SettingsService.keyStravaAccessToken,
+            SettingsService.keyStravaRefreshToken,
             SettingsService.keyStravaExpiresAt,
           ])
             Padding(
