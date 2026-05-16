@@ -9,6 +9,15 @@ class StateStore {
     return 'fallback:${record.startTime}:${record.sourceFilename}';
   }
 
+  Map<String, dynamic>? _cache;
+  DateTime? _cacheTime;
+  static const Duration _cacheTtl = Duration(seconds: 30);
+
+  void invalidateCache() {
+    _cache = null;
+    _cacheTime = null;
+  }
+
   String _historyIdentity(SyncRecord record) {
     if (record.fingerprint.isNotEmpty) return 'fp:${record.fingerprint}';
     return _fallbackHistoryIdentity(record);
@@ -25,13 +34,22 @@ class StateStore {
   }
 
   Future<Map<String, dynamic>> _load() async {
+    if (_cache != null && _cacheTime != null) {
+      if (DateTime.now().difference(_cacheTime!) < _cacheTtl) {
+        return _cache!;
+      }
+    }
+
     final file = await _stateFile();
     if (!await file.exists()) {
-      return {
+      final empty = {
         'synced': {},
         'history': <Map<String, dynamic>>[],
         'dedupeKeys': <String, dynamic>{},
       };
+      _cache = empty;
+      _cacheTime = DateTime.now();
+      return empty;
     }
     try {
       final data =
@@ -39,17 +57,23 @@ class StateStore {
       data.putIfAbsent('synced', () => <String, dynamic>{});
       data.putIfAbsent('history', () => <Map<String, dynamic>>[]);
       data.putIfAbsent('dedupeKeys', () => <String, dynamic>{});
+      _cache = data;
+      _cacheTime = DateTime.now();
       return data;
     } catch (_) {
-      return {
+      final fallback = {
         'synced': {},
         'history': <Map<String, dynamic>>[],
         'dedupeKeys': <String, dynamic>{},
       };
+      _cache = fallback;
+      _cacheTime = DateTime.now();
+      return fallback;
     }
   }
 
   Future<void> _save(Map<String, dynamic> data) async {
+    invalidateCache();
     final file = await _stateFile();
     await file.writeAsString(jsonEncode(data));
   }

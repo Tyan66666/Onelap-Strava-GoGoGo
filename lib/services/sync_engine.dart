@@ -4,12 +4,47 @@ import 'package:path_provider/path_provider.dart';
 import '../models/onelap_activity.dart';
 import '../models/sync_summary.dart';
 import '../models/sync_record.dart';
+import 'concurrency_pool.dart';
 import 'dedupe_service.dart';
 import 'fit_coordinate_rewrite_service.dart';
 import 'onelap_client.dart';
 import 'strava_client.dart';
 import 'state_store.dart';
 import 'xingzhe_client.dart';
+
+class _PlatformUploadResult {
+  final List<PlatformSyncResult> platformResults;
+  final int uploaded;
+  final int failed;
+  final int success;
+  final int deduped;
+  final List<FailedActivitySummary> failures;
+  final List<String> failureReasons;
+
+  const _PlatformUploadResult({
+    this.platformResults = const [],
+    this.uploaded = 0,
+    this.failed = 0,
+    this.success = 0,
+    this.deduped = 0,
+    this.failures = const [],
+    this.failureReasons = const [],
+  });
+}
+
+class _DownloadResult {
+  final OneLapActivity item;
+  final File file;
+  final FitSessionMeta meta;
+  final Object? error;
+
+  _DownloadResult({
+    required this.item,
+    File? file,
+    this.meta = const FitSessionMeta(),
+    this.error,
+  }) : file = file ?? File('');
+}
 
 class SyncEngine {
   final OneLapClient oneLapClient;
@@ -20,6 +55,7 @@ class SyncEngine {
   final FitCoordinateRewriteService? rewriteService;
   final bool uploadToStrava;
   final bool uploadToXingzhe;
+  final int downloadConcurrency;
 
   SyncEngine({
     required this.oneLapClient,
@@ -30,6 +66,7 @@ class SyncEngine {
     this.rewriteService,
     this.uploadToStrava = true,
     this.uploadToXingzhe = false,
+    this.downloadConcurrency = 2,
   });
 
   Future<SyncSummary> runOnce({
@@ -65,60 +102,71 @@ class SyncEngine {
     final List<FailedActivitySummary> xingzheFailures = [];
     final List<FailedActivitySummary> stravaFailures = [];
 
-    String fmtDate(String startTime) =>
-        startTime.length >= 10 ? startTime.substring(0, 10) : startTime;
-    String fmtDist(double? m) =>
-        m == null ? '--' : '${(m / 1000).toStringAsFixed(1)}km';
-    String fmtAscent(int? m) => m == null ? '--' : '${m}m';
+    // Phase 1: Download all FIT files concurrently
+    final pool = ConcurrencyPool<_DownloadResult>(
+      maxConcurrent: downloadConcurrency,
+    );
+    final downloadTasks = activities
+        .map(
+          (item) => () async {
+            try {
+              final file = await oneLapClient.downloadFit(
+                item.fitUrl,
+                item.sourceFilename,
+                downloadDir,
+                activity: item,
+              );
+              final meta = await parseFitSessionMeta(file);
+              return _DownloadResult(item: item, file: file, meta: meta);
+            } catch (e) {
+              return _DownloadResult(item: item, error: e);
+            }
+          },
+        )
+        .toList();
+    final downloadResults = await pool.runAll(downloadTasks);
 
-    FailedActivitySummary failSummary(
-      String fp,
-      String startTime,
-      FitSessionMeta sm,
-      String err,
-    ) {
-      return FailedActivitySummary(
-        fingerprint: fp,
-        date: fmtDate(startTime),
-        distance: fmtDist(sm.distanceM),
-        ascent: fmtAscent(sm.ascentM),
-        error: err,
-      );
-    }
+    // Phase 2: Process each downloaded activity sequentially
+    for (final dlResult in downloadResults) {
+      if (dlResult is! _DownloadResult) continue;
+      final item = dlResult.item;
 
-    for (final item in activities) {
-      String? currentFingerprint;
-      FitSessionMeta sessionMeta = const FitSessionMeta();
-      File fitFile = File('');
-
-      // ---- 1. download + parse session meta ----
-      try {
-        fitFile = await oneLapClient.downloadFit(
-          item.fitUrl,
-          item.sourceFilename,
-          downloadDir,
-          activity: item,
-        );
-        sessionMeta = await parseFitSessionMeta(fitFile);
-      } on DioException catch (e) {
+      if (dlResult.error != null) {
+        final e = dlResult.error!;
         failed++;
-        final statusCode = e.response?.statusCode;
-        final msg = e.message?.trim() ?? '';
-        failureReasons.add(
-          '下载失败 (${item.sourceFilename}): ${[if (statusCode != null) 'HTTP $statusCode', if (msg.isNotEmpty) msg].join(' | ')}',
-        );
-        syncRecords.add(
-          _failedRecord('', item, sessionMeta, 'download', '下载失败: $msg'),
-        );
-        continue;
-      } catch (e) {
-        failed++;
-        failureReasons.add('下载失败 (${item.sourceFilename}): $e');
-        syncRecords.add(
-          _failedRecord('', item, sessionMeta, 'download', '下载失败: $e'),
-        );
+        if (e is DioException) {
+          final statusCode = e.response?.statusCode;
+          final msg = e.message?.trim() ?? '';
+          failureReasons.add(
+            '下载失败 (${item.sourceFilename}): ${[if (statusCode != null) 'HTTP $statusCode', if (msg.isNotEmpty) msg].join(' | ')}',
+          );
+          syncRecords.add(
+            _failedRecord(
+              '',
+              item,
+              const FitSessionMeta(),
+              'download',
+              '下载失败: $msg',
+            ),
+          );
+        } else {
+          failureReasons.add('下载失败 (${item.sourceFilename}): $e');
+          syncRecords.add(
+            _failedRecord(
+              '',
+              item,
+              const FitSessionMeta(),
+              'download',
+              '下载失败: $e',
+            ),
+          );
+        }
         continue;
       }
+
+      String? currentFingerprint;
+      final sessionMeta = dlResult.meta;
+      final fitFile = dlResult.file;
 
       // ---- 2. 生成 dedupeKey（startTime + distance），检查是否命中 ----
       final distM = sessionMeta.distanceM;
@@ -284,283 +332,70 @@ class SyncEngine {
       int platformsFailed = 0;
       final now = DateTime.now().toIso8601String();
 
-      // ---- upload to Strava ----
-      if (uploadToStrava && stravaClient != null) {
-        final skipStrava = await stateStore.isAlreadyUploaded(
-          currentFingerprint,
-          'strava',
-        );
-        if (skipStrava) {
-          platformResults.add(
-            PlatformSyncResult(
-              platform: SyncPlatform.strava,
-              status: SyncStatus.deduped,
-              syncedAt: now,
-            ),
-          );
-          stravaDeduped++;
-        } else if (!gcjCorrectionEnabled || !rewriteFailed) {
-          try {
-            final uploadId = await stravaClient!.uploadFit(uploadFile);
-            final result = await stravaClient!.pollUpload(uploadId);
-            final activityId = result['activity_id'];
-            final error = result['error'];
+      // ---- upload to Strava + Xingzhe in parallel ----
+      final List<_PlatformUploadResult> stravaResults = [];
+      final List<_PlatformUploadResult> xingzheResults = [];
 
-            if (activityId == null && error != null) {
-              final errorStr = '$error'.toLowerCase();
-              if (errorStr.contains('duplicate of')) {
-                await stateStore.markPlatformSynced(
-                  currentFingerprint,
-                  'strava',
-                  null,
-                );
-                platformResults.add(
-                  PlatformSyncResult(
-                    platform: SyncPlatform.strava,
-                    status: SyncStatus.deduped,
-                    syncedAt: now,
-                  ),
-                );
-                stravaDeduped++;
-              } else {
-                platformResults.add(
-                  PlatformSyncResult(
-                    platform: SyncPlatform.strava,
-                    status: SyncStatus.failed,
-                    errorMessage: '$error',
-                    syncedAt: now,
-                  ),
-                );
-                platformsFailed++;
-                stravaFailed++;
-                stravaFailures.add(
-                  failSummary(
-                    currentFingerprint,
-                    item.startTime,
-                    sessionMeta,
-                    error,
-                  ),
-                );
-                failureReasons.add(
-                  'Strava 上传失败 (${item.sourceFilename}): $error',
-                );
-              }
-            } else {
-              final aid = (activityId as num).toInt();
-              await stateStore.markPlatformSynced(
-                currentFingerprint,
-                'strava',
-                aid,
-              );
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.strava,
-                  status: SyncStatus.success,
-                  remoteActivityId: aid,
-                  syncedAt: now,
-                ),
-              );
-              platformsUploaded++;
-              stravaSuccess++;
-            }
-          } catch (e) {
-            if (_isIdempotentSuccess(e)) {
-              await stateStore.markPlatformSynced(
-                currentFingerprint,
-                'strava',
-                null,
-              );
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.strava,
-                  status: SyncStatus.success,
-                  syncedAt: now,
-                ),
-              );
-              platformsUploaded++;
-              stravaSuccess++;
-            } else {
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.strava,
-                  status: SyncStatus.failed,
-                  errorMessage: '$e',
-                  syncedAt: now,
-                ),
-              );
-              platformsFailed++;
-              stravaFailed++;
-              stravaFailures.add(
-                failSummary(
-                  currentFingerprint,
-                  item.startTime,
-                  sessionMeta,
-                  '$e',
-                ),
-              );
-              failureReasons.add('Strava 上传失败 (${item.sourceFilename}): $e');
-            }
-          }
-        } else {
-          platformResults.add(
-            PlatformSyncResult(
-              platform: SyncPlatform.strava,
-              status: SyncStatus.failed,
-              errorMessage: '坐标转换失败: $rewriteError',
-              syncedAt: now,
-            ),
-          );
-          platformsFailed++;
-          stravaFailed++;
-          stravaFailures.add(
-            failSummary(
-              currentFingerprint,
-              item.startTime,
-              sessionMeta,
-              '坐标转换失败',
-            ),
-          );
-        }
+      final List<Future<void>> uploadFutures = [];
+
+      if (uploadToStrava && stravaClient != null) {
+        uploadFutures.add(
+          _uploadToStrava(
+            fingerprint: currentFingerprint,
+            sourceFilename: item.sourceFilename,
+            startTime: item.startTime,
+            sessionMeta: sessionMeta,
+            uploadFile: uploadFile,
+            rewriteFailed: rewriteFailed,
+            rewriteError: rewriteError,
+            now: now,
+          ).then((r) => stravaResults.add(r)),
+        );
       }
 
-      // ---- upload to Xingzhe ----
       if (uploadToXingzhe && xingzheClient != null) {
-        final skipXingzhe = await stateStore.isAlreadyUploaded(
-          currentFingerprint,
-          'xingzhe',
+        uploadFutures.add(
+          _uploadToXingzhe(
+            fingerprint: currentFingerprint,
+            sourceFilename: item.sourceFilename,
+            startTime: item.startTime,
+            sessionMeta: sessionMeta,
+            uploadFile: uploadFile,
+            rewriteFailed: rewriteFailed,
+            rewriteError: rewriteError,
+            now: now,
+          ).then((r) => xingzheResults.add(r)),
         );
-        if (skipXingzhe) {
-          platformResults.add(
-            PlatformSyncResult(
-              platform: SyncPlatform.xingzhe,
-              status: SyncStatus.deduped,
-              syncedAt: now,
-            ),
-          );
-          xingzheDeduped++;
-        } else if (!gcjCorrectionEnabled || !rewriteFailed) {
-          try {
-            final uploadId = await xingzheClient!.uploadFit(uploadFile);
-            final result = await xingzheClient!.pollUpload(uploadId);
-            final activityId = result['activity_id'];
-            final error = result['error'];
+      }
 
-            if (activityId == null || (activityId is num && activityId == 0)) {
-              final isIdempotent = _isIdempotentSuccess(error ?? '');
-              if (error != null && !isIdempotent) {
-                platformResults.add(
-                  PlatformSyncResult(
-                    platform: SyncPlatform.xingzhe,
-                    status: SyncStatus.failed,
-                    errorMessage: '$error',
-                    syncedAt: now,
-                  ),
-                );
-                platformsFailed++;
-                xingzheFailed++;
-                xingzheFailures.add(
-                  failSummary(
-                    currentFingerprint,
-                    item.startTime,
-                    sessionMeta,
-                    error ?? '',
-                  ),
-                );
-                failureReasons.add('行者 上传失败 (${item.sourceFilename}): $error');
-              } else {
-                await stateStore.markPlatformSynced(
-                  currentFingerprint,
-                  'xingzhe',
-                  null,
-                );
-                platformResults.add(
-                  PlatformSyncResult(
-                    platform: SyncPlatform.xingzhe,
-                    status: SyncStatus.success,
-                    syncedAt: now,
-                  ),
-                );
-                platformsUploaded++;
-                xingzheSuccess++;
-              }
-            } else {
-              final aid = activityId is int
-                  ? activityId
-                  : int.tryParse('$activityId') ?? 0;
-              await stateStore.markPlatformSynced(
-                currentFingerprint,
-                'xingzhe',
-                aid,
-              );
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.xingzhe,
-                  status: SyncStatus.success,
-                  remoteActivityId: aid,
-                  syncedAt: now,
-                ),
-              );
-              platformsUploaded++;
-              xingzheSuccess++;
-            }
-          } catch (e) {
-            if (_isIdempotentSuccess(e)) {
-              await stateStore.markPlatformSynced(
-                currentFingerprint,
-                'xingzhe',
-                null,
-              );
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.xingzhe,
-                  status: SyncStatus.success,
-                  syncedAt: now,
-                ),
-              );
-              platformsUploaded++;
-              xingzheSuccess++;
-            } else {
-              platformResults.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.xingzhe,
-                  status: SyncStatus.failed,
-                  errorMessage: '$e',
-                  syncedAt: now,
-                ),
-              );
-              platformsFailed++;
-              xingzheFailed++;
-              xingzheFailures.add(
-                failSummary(
-                  currentFingerprint,
-                  item.startTime,
-                  sessionMeta,
-                  '$e',
-                ),
-              );
-              failureReasons.add('行者 上传失败 (${item.sourceFilename}): $e');
-            }
-          }
-        } else {
-          platformResults.add(
-            PlatformSyncResult(
-              platform: SyncPlatform.xingzhe,
-              status: SyncStatus.failed,
-              errorMessage: '坐标转换失败: $rewriteError',
-              syncedAt: now,
-            ),
-          );
-          platformsFailed++;
-          xingzheFailed++;
-          xingzheFailures.add(
-            failSummary(
-              currentFingerprint,
-              item.startTime,
-              sessionMeta,
-              '坐标转换失败',
-            ),
-          );
-        }
+      // Run all platform uploads in parallel.
+      // Each helper catches all exceptions internally, so Future.wait
+      // never sees a rejected future — this is critical: if one helper
+      // let an exception escape, Future.wait would cancel the other.
+      await Future.wait(uploadFutures);
+
+      // Aggregate Strava results
+      for (final r in stravaResults) {
+        platformResults.addAll(r.platformResults);
+        platformsUploaded += r.uploaded;
+        platformsFailed += r.failed;
+        stravaSuccess += r.success;
+        stravaFailed += r.failed;
+        stravaDeduped += r.deduped;
+        stravaFailures.addAll(r.failures);
+        failureReasons.addAll(r.failureReasons);
+      }
+
+      // Aggregate Xingzhe results
+      for (final r in xingzheResults) {
+        platformResults.addAll(r.platformResults);
+        platformsUploaded += r.uploaded;
+        platformsFailed += r.failed;
+        xingzheSuccess += r.success;
+        xingzheFailed += r.failed;
+        xingzheDeduped += r.deduped;
+        xingzheFailures.addAll(r.failures);
+        failureReasons.addAll(r.failureReasons);
       }
 
       // ---- 6. 更新计数 ----
@@ -682,6 +517,293 @@ class SyncEngine {
             syncedAt: now,
           ),
       ],
+    );
+  }
+
+  // === Parallel upload helpers ===
+  // Each helper catches ALL exceptions internally — never let an exception
+  // escape, because Future.wait in the caller would cancel other uploads.
+
+  FailedActivitySummary _failSummary(
+    String fingerprint,
+    String startTime,
+    FitSessionMeta sm,
+    String err,
+  ) {
+    String fmtDate(String s) => s.length >= 10 ? s.substring(0, 10) : s;
+    String fmtDist(double? m) =>
+        m == null ? '--' : '${(m / 1000).toStringAsFixed(1)}km';
+    String fmtAscent(int? m) => m == null ? '--' : '${m}m';
+    return FailedActivitySummary(
+      fingerprint: fingerprint,
+      date: fmtDate(startTime),
+      distance: fmtDist(sm.distanceM),
+      ascent: fmtAscent(sm.ascentM),
+      error: err,
+    );
+  }
+
+  Future<_PlatformUploadResult> _uploadToStrava({
+    required String fingerprint,
+    required String sourceFilename,
+    required String startTime,
+    required FitSessionMeta sessionMeta,
+    required File uploadFile,
+    required bool rewriteFailed,
+    required String? rewriteError,
+    required String now,
+  }) async {
+    final platformResults = <PlatformSyncResult>[];
+    int uploaded = 0, failed = 0;
+    int sSuccess = 0, sDeduped = 0;
+    final List<FailedActivitySummary> sFailures = [];
+    final List<String> sFailureReasons = [];
+
+    final skip = await stateStore.isAlreadyUploaded(fingerprint, 'strava');
+    if (skip) {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.strava,
+          status: SyncStatus.deduped,
+          syncedAt: now,
+        ),
+      );
+      sDeduped++;
+    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+      try {
+        final uploadId = await stravaClient!.uploadFit(uploadFile);
+        final result = await stravaClient!.pollUpload(uploadId);
+        final activityId = result['activity_id'];
+        final error = result['error'];
+
+        if (activityId == null && error != null) {
+          final errorStr = '$error'.toLowerCase();
+          if (errorStr.contains('duplicate of')) {
+            // Safe to call concurrently — Dart is single-threaded, so both
+            // platform helpers mutate the same cached Map reference.
+            await stateStore.markPlatformSynced(fingerprint, 'strava', null);
+            platformResults.add(
+              PlatformSyncResult(
+                platform: SyncPlatform.strava,
+                status: SyncStatus.deduped,
+                syncedAt: now,
+              ),
+            );
+            sDeduped++;
+          } else {
+            platformResults.add(
+              PlatformSyncResult(
+                platform: SyncPlatform.strava,
+                status: SyncStatus.failed,
+                errorMessage: '$error',
+                syncedAt: now,
+              ),
+            );
+            failed++;
+
+            sFailures.add(
+              _failSummary(fingerprint, startTime, sessionMeta, error),
+            );
+            sFailureReasons.add('Strava 上传失败 ($sourceFilename): $error');
+          }
+        } else {
+          final aid = (activityId as num).toInt();
+          await stateStore.markPlatformSynced(fingerprint, 'strava', aid);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.strava,
+              status: SyncStatus.success,
+              remoteActivityId: aid,
+              syncedAt: now,
+            ),
+          );
+          uploaded++;
+          sSuccess++;
+        }
+      } catch (e) {
+        if (_isIdempotentSuccess(e)) {
+          await stateStore.markPlatformSynced(fingerprint, 'strava', null);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.strava,
+              status: SyncStatus.success,
+              syncedAt: now,
+            ),
+          );
+          uploaded++;
+          sSuccess++;
+        } else {
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.strava,
+              status: SyncStatus.failed,
+              errorMessage: '$e',
+              syncedAt: now,
+            ),
+          );
+          failed++;
+          sFailures.add(
+            _failSummary(fingerprint, startTime, sessionMeta, '$e'),
+          );
+          sFailureReasons.add('Strava 上传失败 ($sourceFilename): $e');
+        }
+      }
+    } else {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.strava,
+          status: SyncStatus.failed,
+          errorMessage: '坐标转换失败: $rewriteError',
+          syncedAt: now,
+        ),
+      );
+      failed++;
+      sFailures.add(
+        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
+      );
+    }
+
+    return _PlatformUploadResult(
+      platformResults: platformResults,
+      uploaded: uploaded,
+      failed: failed,
+      success: sSuccess,
+      deduped: sDeduped,
+      failures: sFailures,
+      failureReasons: sFailureReasons,
+    );
+  }
+
+  Future<_PlatformUploadResult> _uploadToXingzhe({
+    required String fingerprint,
+    required String sourceFilename,
+    required String startTime,
+    required FitSessionMeta sessionMeta,
+    required File uploadFile,
+    required bool rewriteFailed,
+    required String? rewriteError,
+    required String now,
+  }) async {
+    final platformResults = <PlatformSyncResult>[];
+    int uploaded = 0, failed = 0;
+    int xSuccess = 0, xDeduped = 0;
+    final List<FailedActivitySummary> xFailures = [];
+    final List<String> xFailureReasons = [];
+
+    final skip = await stateStore.isAlreadyUploaded(fingerprint, 'xingzhe');
+    if (skip) {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.xingzhe,
+          status: SyncStatus.deduped,
+          syncedAt: now,
+        ),
+      );
+      xDeduped++;
+    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+      try {
+        final uploadId = await xingzheClient!.uploadFit(uploadFile);
+        final result = await xingzheClient!.pollUpload(uploadId);
+        final activityId = result['activity_id'];
+        final error = result['error'];
+
+        if (activityId == null || (activityId is num && activityId == 0)) {
+          final isIdempotent = _isIdempotentSuccess(error ?? '');
+          if (error != null && !isIdempotent) {
+            platformResults.add(
+              PlatformSyncResult(
+                platform: SyncPlatform.xingzhe,
+                status: SyncStatus.failed,
+                errorMessage: '$error',
+                syncedAt: now,
+              ),
+            );
+            failed++;
+            xFailures.add(
+              _failSummary(fingerprint, startTime, sessionMeta, error),
+            );
+            xFailureReasons.add('行者 上传失败 ($sourceFilename): $error');
+          } else {
+            // Safe to call concurrently — Dart is single-threaded, so both
+            // platform helpers mutate the same cached Map reference.
+            await stateStore.markPlatformSynced(fingerprint, 'xingzhe', null);
+            platformResults.add(
+              PlatformSyncResult(
+                platform: SyncPlatform.xingzhe,
+                status: SyncStatus.success,
+                syncedAt: now,
+              ),
+            );
+            uploaded++;
+            xSuccess++;
+          }
+        } else {
+          final aid = activityId is int
+              ? activityId
+              : int.tryParse('$activityId') ?? 0;
+          await stateStore.markPlatformSynced(fingerprint, 'xingzhe', aid);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.xingzhe,
+              status: SyncStatus.success,
+              remoteActivityId: aid,
+              syncedAt: now,
+            ),
+          );
+          uploaded++;
+          xSuccess++;
+        }
+      } catch (e) {
+        if (_isIdempotentSuccess(e)) {
+          await stateStore.markPlatformSynced(fingerprint, 'xingzhe', null);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.xingzhe,
+              status: SyncStatus.success,
+              syncedAt: now,
+            ),
+          );
+          uploaded++;
+          xSuccess++;
+        } else {
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.xingzhe,
+              status: SyncStatus.failed,
+              errorMessage: '$e',
+              syncedAt: now,
+            ),
+          );
+          failed++;
+          xFailures.add(
+            _failSummary(fingerprint, startTime, sessionMeta, '$e'),
+          );
+          xFailureReasons.add('行者 上传失败 ($sourceFilename): $e');
+        }
+      }
+    } else {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.xingzhe,
+          status: SyncStatus.failed,
+          errorMessage: '坐标转换失败: $rewriteError',
+          syncedAt: now,
+        ),
+      );
+      failed++;
+      xFailures.add(
+        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
+      );
+    }
+
+    return _PlatformUploadResult(
+      platformResults: platformResults,
+      uploaded: uploaded,
+      failed: failed,
+      success: xSuccess,
+      deduped: xDeduped,
+      failures: xFailures,
+      failureReasons: xFailureReasons,
     );
   }
 }

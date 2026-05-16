@@ -22,7 +22,7 @@ test/
   macos_entitlements_test.dart
   models/                — 1 test file
   screens/               — 2 test files
-  services/              — 12 test files (one per service, broad coverage)
+  services/              — 15 test files (one per service, broad coverage)
 ```
 
 Platform folders (`android/`, `ios/`, etc.) — only edit when the task requires platform-specific changes.

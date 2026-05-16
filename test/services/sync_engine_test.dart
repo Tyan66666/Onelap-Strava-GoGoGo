@@ -125,6 +125,23 @@ class _FakeXingzheClient extends XingzheClient {
   }
 }
 
+class _FailingXingzheClient extends XingzheClient {
+  _FailingXingzheClient() : super(username: 'user', password: 'pass');
+
+  @override
+  Future<int> uploadFit(File fitFile, {int retries = 3}) async {
+    throw Exception('xingzhe upload failed');
+  }
+
+  @override
+  Future<Map<String, dynamic>> pollUpload(
+    int uploadId, {
+    int maxAttempts = 10,
+  }) async {
+    return <String, dynamic>{'activity_id': 0};
+  }
+}
+
 class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
   _FakeFitCoordinateRewriteService({this.rewrittenFile, this.error});
 
@@ -139,6 +156,99 @@ class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
       throw error!;
     }
     return rewrittenFile!;
+  }
+}
+
+class _TrackingStravaClient extends StravaClient {
+  _TrackingStravaClient({this.onStart, this.onDone})
+    : super(
+        clientId: 'id',
+        clientSecret: 'secret',
+        refreshToken: 'refresh',
+        accessToken: 'access',
+        expiresAt: 4102444800,
+      );
+
+  final VoidCallback? onStart;
+  final VoidCallback? onDone;
+
+  @override
+  Future<int> uploadFit(File file, {int retries = 3}) async {
+    onStart?.call();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    onDone?.call();
+    return 42;
+  }
+
+  @override
+  Future<Map<String, dynamic>> pollUpload(
+    int uploadId, {
+    int maxAttempts = 10,
+  }) async {
+    return <String, dynamic>{'activity_id': 99};
+  }
+}
+
+class _TrackingXingzheClient extends XingzheClient {
+  _TrackingXingzheClient({this.onStart, this.onDone})
+    : super(username: 'user', password: 'pass');
+
+  final VoidCallback? onStart;
+  final VoidCallback? onDone;
+
+  @override
+  Future<int> uploadFit(File fitFile, {int retries = 3}) async {
+    onStart?.call();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    onDone?.call();
+    return 7;
+  }
+
+  @override
+  Future<Map<String, dynamic>> pollUpload(
+    int uploadId, {
+    int maxAttempts = 10,
+  }) async {
+    return <String, dynamic>{'activity_id': 456};
+  }
+}
+
+class _CountingOneLapClient extends OneLapClient {
+  _CountingOneLapClient({
+    required this.activities,
+    required this.downloadedFile,
+    this.onDownload,
+    this.onDownloadDone,
+  }) : super(
+         baseUrl: 'https://example.com',
+         username: 'user',
+         password: 'pass',
+       );
+
+  final List<OneLapActivity> activities;
+  final File downloadedFile;
+  final VoidCallback? onDownload;
+  final VoidCallback? onDownloadDone;
+  int downloadCount = 0;
+
+  @override
+  Future<List<OneLapActivity>> listFitActivities({
+    required DateTime since,
+    int limit = 50,
+  }) async => activities;
+
+  @override
+  Future<File> downloadFit(
+    String url,
+    String fileKey,
+    Directory outDir, {
+    OneLapActivity? activity,
+  }) async {
+    downloadCount++;
+    onDownload?.call();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    onDownloadDone?.call();
+    return downloadedFile;
   }
 }
 
@@ -383,6 +493,148 @@ void main() {
       expect(summary.xingzheDeduped, 0);
       expect(banner.stravaDeduped, 1);
       expect(banner.xingzheFailed, 1);
+    });
+
+    test('strava and xingzhe uploads run in parallel', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-parallel-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes([1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      int concurrent = 0;
+      int maxConcurrent = 0;
+
+      final strava = _TrackingStravaClient(
+        onStart: () {
+          concurrent++;
+          if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+        },
+        onDone: () => concurrent--,
+      );
+      final xingzhe = _TrackingXingzheClient(
+        onStart: () {
+          concurrent++;
+          if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+        },
+        onDone: () => concurrent--,
+      );
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: [
+            _activity(),
+            _activity(sourceFilename: 'activity2.fit'),
+          ],
+          downloadedFile: file,
+        ),
+        stravaClient: strava,
+        xingzheClient: xingzhe,
+        stateStore: _FakeStateStore(),
+        uploadToStrava: true,
+        uploadToXingzhe: true,
+      );
+
+      await engine.runOnce();
+
+      expect(
+        maxConcurrent,
+        greaterThanOrEqualTo(2),
+        reason: 'Both platforms should upload simultaneously',
+      );
+      expect(
+        maxConcurrent,
+        lessThanOrEqualTo(2),
+        reason: 'Must not exceed 2 concurrent uploads per activity',
+      );
+    });
+
+    test(
+      'downloads FIT files concurrently (up to concurrency limit)',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'sync-engine-concurrent-dl-',
+        );
+        final file = File('${tempDir.path}/activity.fit');
+        await file.writeAsBytes([1, 2, 3]);
+
+        addTearDown(() async {
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
+
+        int concurrent = 0;
+        int maxConcurrent = 0;
+
+        final fakeClient = _CountingOneLapClient(
+          activities: List.generate(4, (_) => _activity()),
+          downloadedFile: file,
+          onDownload: () {
+            concurrent++;
+            if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+          },
+          onDownloadDone: () => concurrent--,
+        );
+
+        final engine = SyncEngine(
+          oneLapClient: fakeClient,
+          stravaClient: _FakeStravaClient(),
+          stateStore: _FakeStateStore(),
+          downloadConcurrency: 2,
+        );
+
+        await engine.runOnce();
+
+        expect(
+          maxConcurrent,
+          greaterThanOrEqualTo(2),
+          reason: 'Must actually download concurrently up to the limit',
+        );
+        expect(
+          maxConcurrent,
+          lessThanOrEqualTo(2),
+          reason: 'Must not exceed concurrency limit',
+        );
+        expect(fakeClient.downloadCount, 4);
+      },
+    );
+
+    test('one platform failure does not block the other', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-isolation-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes([1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final strava = _FakeStravaClient(); // succeeds
+      final xingzhe = _FailingXingzheClient(); // throws on upload
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: [_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: strava,
+        xingzheClient: xingzhe,
+        stateStore: _FakeStateStore(),
+        uploadToStrava: true,
+        uploadToXingzhe: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      // Strava should succeed even though Xingzhe failed
+      expect(summary.stravaSuccess, 1);
+      expect(summary.xingzheFailed, 1);
+      expect(summary.success, 1); // partial success counts as success
+      expect(summary.failed, 0); // only count as failed if ALL platforms failed
     });
   });
 }
