@@ -80,6 +80,34 @@ void main() {
         expect(activity.rawFileKey, 'geo/20260329/file.fit');
       },
     );
+
+    test('stores distanceKm and timeSeconds when provided', () {
+      const OneLapActivity activity = OneLapActivity(
+        activityId: '1',
+        startTime: '2026-03-29T10:00:00',
+        fitUrl: 'geo/20260329/file.fit',
+        recordKey: 'fileKey:geo/20260329/file.fit',
+        sourceFilename: 'file.fit',
+        distanceKm: 42.5,
+        timeSeconds: 5400,
+      );
+
+      expect(activity.distanceKm, 42.5);
+      expect(activity.timeSeconds, 5400);
+    });
+
+    test('distanceKm and timeSeconds default to null', () {
+      const OneLapActivity activity = OneLapActivity(
+        activityId: '1',
+        startTime: '2026-03-29T10:00:00',
+        fitUrl: 'geo/20260329/file.fit',
+        recordKey: 'fileKey:geo/20260329/file.fit',
+        sourceFilename: 'file.fit',
+      );
+
+      expect(activity.distanceKm, isNull);
+      expect(activity.timeSeconds, isNull);
+    });
   });
 
   group('OneLapClient.login', () {
@@ -1906,6 +1934,79 @@ void main() {
       expect(activities.single.fitUrl, 'geo/20260329/filekey.fit');
       expect(activities.single.rawFileKey, 'geo/20260329/filekey.fit');
       expect(activities.single.recordKey, 'fileKey:geo/20260329/filekey.fit');
+    });
+
+    test('parses distanceKm and timeSeconds from detail response', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        final String url = options.uri.toString();
+
+        if (url == 'http://example.com/api/login') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {'token': 'tok', 'refresh_token': 'ref'},
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/list') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'list': [
+                  {'id': 100, 'start_riding_time': '2026-03-29T10:00:00'},
+                ],
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        if (url == 'https://otm.onelap.cn/api/otm/ride_record/analysis/100') {
+          return ResponseBody.fromString(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'ridingRecord': {
+                  'fileKey': 'geo/20260329/ride.fit',
+                  'totalDistance': 42500,
+                  'time': 5400,
+                },
+              },
+            }),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final OneLapClient client = OneLapClient(
+        baseUrl: 'http://example.com',
+        username: 'unused',
+        password: 'unused',
+        dio: dio,
+      );
+
+      final activities = await client.listFitActivities(
+        since: DateTime.utc(2026, 3, 28),
+      );
+
+      expect(activities, hasLength(1));
+      expect(activities.single.distanceKm, 42.5);
+      expect(activities.single.timeSeconds, 5400);
     });
   });
 

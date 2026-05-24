@@ -9,6 +9,8 @@ class OneLapActivity {
   final String? rawFitUrlAlt;
   final String? rawDurl;
   final String? rawFileKey;
+  final double? distanceKm;
+  final int? timeSeconds;
 
   const OneLapActivity({
     required this.activityId,
@@ -21,5 +23,7 @@ class OneLapActivity {
     this.rawFitUrlAlt,
     this.rawDurl,
     this.rawFileKey,
+    this.distanceKm,
+    this.timeSeconds,
   });
 }

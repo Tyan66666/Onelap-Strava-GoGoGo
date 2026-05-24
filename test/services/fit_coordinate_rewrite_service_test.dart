@@ -312,6 +312,22 @@ void main() {
       },
     );
 
+    test('throws for file smaller than FIT header minimum', () async {
+      final tempDir = await Directory.systemTemp.createTemp('fit-header-');
+      final tinyFile = File('${tempDir.path}/tiny.fit');
+      await tinyFile.writeAsBytes(<int>[1, 2, 3]); // only 3 bytes
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final service = FitCoordinateRewriteService(
+        loadCacheDirectory: () async => tempDir,
+      );
+
+      expect(() => service.rewrite(tinyFile), throwsA(isA<Exception>()));
+    });
+
     test(
       'creates collision-safe .fit outputs for concurrent rewrites',
       () async {

@@ -267,6 +267,40 @@ void main() {
       );
     });
 
+    test('throws XingzhePermanentError when response is not a Map', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        return ResponseBody.fromString(
+          '<html>Server Error</html>',
+          200,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>['text/html'],
+          },
+        );
+      });
+
+      final XingzheClient client = XingzheClient(
+        username: 'user',
+        password: 'pass',
+        dio: dio,
+      );
+
+      final Directory tempDir = await Directory.systemTemp.createTemp(
+        'xingzhe-type-',
+      );
+      final File file = File('${tempDir.path}/test.fit');
+      await file.writeAsBytes(const <int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      expect(
+        () => client.uploadFit(file),
+        throwsA(isA<XingzhePermanentError>()),
+      );
+    });
+
     test(
       'sanitizes secrets while preserving safe upload failure detail',
       () async {

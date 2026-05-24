@@ -52,6 +52,7 @@ class _FakeStravaClient extends StravaClient {
 
   File? uploadedFile;
   int uploadCalls = 0;
+  bool activityExistsResult = true;
 
   @override
   Future<int> uploadFit(File file, {int retries = 3}) async {
@@ -59,6 +60,9 @@ class _FakeStravaClient extends StravaClient {
     uploadCalls++;
     return 42;
   }
+
+  @override
+  Future<bool> activityExists(int activityId) async => activityExistsResult;
 
   @override
   Future<Map<String, dynamic>> pollUpload(
@@ -77,6 +81,10 @@ class _FakeStateStore extends StateStore {
   int? markedActivityId;
   bool synced = false;
   final Map<String, bool> uploadedPlatforms = <String, bool>{};
+  final Map<String, int> remoteActivityIds = {};
+  final List<String> clearedPlatforms = [];
+  List<SyncRecord> capturedRecords = [];
+  void Function(String key, String fp)? markDedupeKeyOverride;
 
   @override
   Future<bool> isAlreadyUploaded(String fingerprint, String platform) async {
@@ -101,10 +109,25 @@ class _FakeStateStore extends StateStore {
   }
 
   @override
-  Future<void> markDedupeKey(String dedupeKey, String fingerprint) async {}
+  Future<void> markDedupeKey(String dedupeKey, String fingerprint) async {
+    markDedupeKeyOverride?.call(dedupeKey, fingerprint);
+  }
 
   @override
-  Future<void> saveSyncRecords(List<SyncRecord> records) async {}
+  Future<void> saveSyncRecords(List<SyncRecord> records) async {
+    capturedRecords.addAll(records);
+  }
+
+  @override
+  Future<int?> getRemoteActivityId(String fingerprint, String platform) async {
+    return remoteActivityIds[platform];
+  }
+
+  @override
+  Future<void> clearPlatformStatus(String fingerprint, String platform) async {
+    clearedPlatforms.add(platform);
+    uploadedPlatforms.remove(platform);
+  }
 }
 
 class _FakeXingzheClient extends XingzheClient {
@@ -467,7 +490,8 @@ void main() {
       });
 
       final _FakeStateStore stateStore = _FakeStateStore()
-        ..uploadedPlatforms['strava'] = true;
+        ..uploadedPlatforms['strava'] = true
+        ..remoteActivityIds['strava'] = 99;
       final SyncEngine engine = SyncEngine(
         oneLapClient: _FakeOneLapClient(
           activities: <OneLapActivity>[_activity()],
@@ -635,6 +659,140 @@ void main() {
       expect(summary.xingzheFailed, 1);
       expect(summary.success, 1); // partial success counts as success
       expect(summary.failed, 0); // only count as failed if ALL platforms failed
+    });
+
+    test('dedupe-path SyncRecord includes platform flags', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-dedup-record-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final stateStore = _FakeStateStore()
+        ..synced =
+            true // all platforms already synced
+        ..remoteActivityIds['strava'] = 99;
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        stateStore: stateStore,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(summary.deduped, greaterThanOrEqualTo(1));
+      expect(stateStore.capturedRecords, isNotEmpty);
+      final dedupRecord = stateStore.capturedRecords.first;
+      expect(dedupRecord.uploadedToStrava, isTrue);
+      expect(dedupRecord.uploadedToXingzhe, isFalse);
+    });
+
+    test('dedupeKey includes timeSeconds when available', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-dedupe-key-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      String? capturedDedupeKey;
+      final stateStore = _FakeStateStore()
+        ..markDedupeKeyOverride = (String key, String fp) {
+          capturedDedupeKey = key;
+        };
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[
+            OneLapActivity(
+              activityId: 'activity-id',
+              startTime: '2026-04-10T08:00:00Z',
+              fitUrl: 'https://example.com/activity.fit',
+              recordKey: 'record-key',
+              sourceFilename: 'activity.fit',
+              timeSeconds: 3600,
+            ),
+          ],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        stateStore: stateStore,
+      );
+
+      await engine.runOnce();
+
+      expect(capturedDedupeKey, isNotNull);
+      expect(capturedDedupeKey, contains('_3600'));
+    });
+
+    test('cleans up download directory after sync', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-download-cleanup-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        stateStore: _FakeStateStore(),
+      );
+
+      await engine.runOnce();
+
+      final downloadDir = Directory('${cacheDirectory.path}/fit_downloads');
+      expect(await downloadDir.exists(), isFalse);
+    });
+
+    test('re-uploads to Strava when remote activity was deleted', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-strava-deleted-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final stateStore = _FakeStateStore()
+        ..uploadedPlatforms['strava'] = true
+        ..remoteActivityIds['strava'] = 42;
+
+      final stravaClient = _FakeStravaClient()..activityExistsResult = false;
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: stravaClient,
+        stateStore: stateStore,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(summary.stravaSuccess, 1);
+      expect(summary.stravaDeduped, 0);
+      expect(stateStore.clearedPlatforms, contains('strava'));
     });
   });
 }

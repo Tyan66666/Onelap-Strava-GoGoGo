@@ -171,7 +171,7 @@ class SyncEngine {
       // ---- 2. 生成 dedupeKey（startTime + distance），检查是否命中 ----
       final distM = sessionMeta.distanceM;
       final dedupeKey =
-          '${item.startTime}_${distM != null ? distM.round() : 'na'}';
+          '${item.startTime}_${distM != null ? distM.round() : 'na'}_${item.timeSeconds ?? 'na'}';
       final alreadyDeduped = await stateStore.isDedupeKey(dedupeKey);
 
       if (alreadyDeduped) {
@@ -190,14 +190,28 @@ class SyncEngine {
               'strava',
             );
             if (already) {
-              skipStrava = true;
-              preSkipped.add(
-                PlatformSyncResult(
-                  platform: SyncPlatform.strava,
-                  status: SyncStatus.deduped,
-                  syncedAt: DateTime.now().toIso8601String(),
-                ),
+              final remoteId = await stateStore.getRemoteActivityId(
+                storedFp,
+                'strava',
               );
+              bool verified = true;
+              if (remoteId != null && stravaClient != null) {
+                verified = await stravaClient!.activityExists(remoteId);
+              } else if (remoteId == null) {
+                verified = false;
+              }
+              if (verified) {
+                skipStrava = true;
+                preSkipped.add(
+                  PlatformSyncResult(
+                    platform: SyncPlatform.strava,
+                    status: SyncStatus.deduped,
+                    syncedAt: DateTime.now().toIso8601String(),
+                  ),
+                );
+              } else {
+                await stateStore.clearPlatformStatus(storedFp, 'strava');
+              }
             }
           }
           if (uploadToXingzhe) {
@@ -227,6 +241,11 @@ class SyncEngine {
                 sourceFilename: item.sourceFilename,
                 startTime: item.startTime,
                 syncedAt: DateTime.now(),
+                distanceM: sessionMeta.distanceM,
+                ascentM: sessionMeta.ascentM,
+                sport: sessionMeta.sport,
+                uploadedToStrava: uploadToStrava,
+                uploadedToXingzhe: uploadToXingzhe,
                 platformResults: preSkipped,
               ),
             );
@@ -263,14 +282,31 @@ class SyncEngine {
             'strava',
           );
           if (already) {
-            skipStrava = true;
-            preSkipped.add(
-              PlatformSyncResult(
-                platform: SyncPlatform.strava,
-                status: SyncStatus.deduped,
-                syncedAt: DateTime.now().toIso8601String(),
-              ),
+            final remoteId = await stateStore.getRemoteActivityId(
+              currentFingerprint,
+              'strava',
             );
+            bool verified = true;
+            if (remoteId != null && stravaClient != null) {
+              verified = await stravaClient!.activityExists(remoteId);
+            } else if (remoteId == null) {
+              verified = false;
+            }
+            if (verified) {
+              skipStrava = true;
+              preSkipped.add(
+                PlatformSyncResult(
+                  platform: SyncPlatform.strava,
+                  status: SyncStatus.deduped,
+                  syncedAt: DateTime.now().toIso8601String(),
+                ),
+              );
+            } else {
+              await stateStore.clearPlatformStatus(
+                currentFingerprint,
+                'strava',
+              );
+            }
           }
         }
         if (uploadToXingzhe) {
@@ -300,6 +336,11 @@ class SyncEngine {
               sourceFilename: item.sourceFilename,
               startTime: item.startTime,
               syncedAt: DateTime.now(),
+              distanceM: sessionMeta.distanceM,
+              ascentM: sessionMeta.ascentM,
+              sport: sessionMeta.sport,
+              uploadedToStrava: uploadToStrava,
+              uploadedToXingzhe: uploadToXingzhe,
               platformResults: preSkipped,
             ),
           );
@@ -439,6 +480,12 @@ class SyncEngine {
       await stateStore.saveSyncRecords(syncRecords);
     }
 
+    try {
+      if (downloadDir.existsSync()) {
+        await downloadDir.delete(recursive: true);
+      }
+    } catch (_) {}
+
     return SyncSummary(
       fetched: activities.length,
       deduped: deduped,
@@ -559,8 +606,31 @@ class SyncEngine {
     final List<FailedActivitySummary> sFailures = [];
     final List<String> sFailureReasons = [];
 
-    final skip = await stateStore.isAlreadyUploaded(fingerprint, 'strava');
-    if (skip) {
+    final alreadySynced = await stateStore.isAlreadyUploaded(
+      fingerprint,
+      'strava',
+    );
+    bool shouldSkip = false;
+
+    if (alreadySynced) {
+      final remoteId = await stateStore.getRemoteActivityId(
+        fingerprint,
+        'strava',
+      );
+      bool verified = true;
+      if (remoteId != null && stravaClient != null) {
+        verified = await stravaClient!.activityExists(remoteId);
+      } else if (remoteId == null) {
+        verified = false;
+      }
+      if (verified) {
+        shouldSkip = true;
+      } else {
+        await stateStore.clearPlatformStatus(fingerprint, 'strava');
+      }
+    }
+
+    if (shouldSkip) {
       platformResults.add(
         PlatformSyncResult(
           platform: SyncPlatform.strava,

@@ -328,6 +328,15 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
           );
         }
 
+        if (response.data is! Map<String, dynamic>) {
+          throw XingzhePermanentError(
+            _statusSummary(
+              response.statusCode,
+              fallback: 'xingzhe upload returned unexpected response type',
+            ),
+          );
+        }
+
         final payload = response.data as Map<String, dynamic>;
 
         // 9006 = 文件已上传（幂等成功），从 msg 中提取已存在的 activity_id

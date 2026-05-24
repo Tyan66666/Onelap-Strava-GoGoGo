@@ -109,6 +109,40 @@ class StateStore {
     return false;
   }
 
+  Future<int?> getRemoteActivityId(String fingerprint, String platform) async {
+    final data = await _load();
+    final synced = (data['synced'] as Map)[fingerprint] as Map?;
+    if (synced == null) return null;
+    final id = synced['${platform}_activity_id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return null;
+  }
+
+  Future<void> clearPlatformStatus(String fingerprint, String platform) async {
+    final data = await _load();
+
+    // 1. Clear synced table
+    final synced = (data['synced'] as Map)[fingerprint] as Map?;
+    if (synced != null) {
+      (synced['platforms'] as Map?)?.remove(platform);
+      synced.remove('${platform}_activity_id');
+    }
+
+    // 2. Clear dedupeKeys
+    final dedupeKeys = data['dedupeKeys'] as Map?;
+    if (dedupeKeys != null) {
+      for (final entry in dedupeKeys.entries) {
+        final v = entry.value;
+        if (v is Map && (v['fingerprint'] as String?) == fingerprint) {
+          (v['platforms'] as Map?)?.remove(platform);
+          break;
+        }
+      }
+    }
+    await _save(data);
+  }
+
   /// 标记 fingerprint 已成功上传到指定平台（记录 remoteActivityId）。
   /// 支持同一 fingerprint 标记多个平台，互不影响。
   Future<void> markSynced(String fingerprint, int? stravaActivityId) async {

@@ -176,6 +176,11 @@ class SyncRecord {
   /// 合并另一条同 fingerprint 的记录。
   /// 同平台结果取 syncedAt 最新的那个，覆盖旧结果。
   SyncRecord mergeWith(SyncRecord other) {
+    if (fingerprint.isNotEmpty &&
+        other.fingerprint.isNotEmpty &&
+        fingerprint != other.fingerprint) {
+      return this;
+    }
     final mergedResults = <SyncPlatform, PlatformSyncResult>{};
     for (final r in [...platformResults, ...other.platformResults]) {
       final existing = mergedResults[r.platform];

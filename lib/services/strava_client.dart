@@ -169,4 +169,21 @@ class StravaClient {
     }
     return last;
   }
+
+  Future<bool> activityExists(int activityId) async {
+    final token = await ensureAccessToken();
+    try {
+      final response = await _dio.get(
+        'https://www.strava.com/api/v3/activities/$activityId',
+        options: Options(
+          headers: {'Authorization': 'Bearer $token'},
+          validateStatus: (status) => status != null && status < 500,
+        ),
+      );
+      if (response.statusCode == HttpStatus.notFound) return false;
+      return true;
+    } on DioException catch (_) {
+      return true;
+    }
+  }
 }

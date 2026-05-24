@@ -118,4 +118,57 @@ void main() {
       expect(fields['data_type'], 'gpx');
     });
   });
+
+  group('StravaClient.activityExists', () {
+    test('returns true when activity exists', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        if (options.uri.toString().contains('/api/v3/activities/123')) {
+          return ResponseBody.fromString(
+            jsonEncode({'id': 123, 'name': 'Test'}),
+            200,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['application/json'],
+            },
+          );
+        }
+        return ResponseBody.fromString('not found', 404);
+      });
+
+      final client = StravaClient(
+        clientId: 'id',
+        clientSecret: 'secret',
+        refreshToken: 'refresh',
+        accessToken: 'valid-token',
+        expiresAt: 4102444800,
+        dio: dio,
+      );
+
+      expect(await client.activityExists(123), isTrue);
+    });
+
+    test('returns false when activity is deleted (404)', () async {
+      final Dio dio = Dio();
+      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+        return ResponseBody.fromString(
+          '{"errors": [{"resource": "Activity", "code": "not found"}]}',
+          404,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>['application/json'],
+          },
+        );
+      });
+
+      final client = StravaClient(
+        clientId: 'id',
+        clientSecret: 'secret',
+        refreshToken: 'refresh',
+        accessToken: 'valid-token',
+        expiresAt: 4102444800,
+        dio: dio,
+      );
+
+      expect(await client.activityExists(999), isFalse);
+    });
+  });
 }

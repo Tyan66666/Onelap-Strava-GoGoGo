@@ -51,6 +51,11 @@ class FitCoordinateRewriteService {
   /// [options] - optional rewrite parameters (startTime for naming).
   /// CPU-bound coordinate conversion runs in a background isolate.
   Future<File> rewrite(File inputFile, {RewriteOptions? options}) async {
+    final int fileSize = await inputFile.length();
+    if (fileSize < 12) {
+      throw Exception('File too small to be a valid FIT file: $fileSize bytes');
+    }
+
     // CPU-bound: parse + convert coordinates in background isolate
     final Uint8List rewrittenBytes = await rewriteFitCoordinatesInIsolate(
       inputFile.path,

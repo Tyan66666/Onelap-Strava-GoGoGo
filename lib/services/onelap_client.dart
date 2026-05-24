@@ -105,6 +105,9 @@ class OneLapClient {
       }
       var sourceFilename = _buildSourceFilename(map, startTime);
 
+      double? detailDistanceKm;
+      int? detailTimeSeconds;
+
       try {
         final Map<String, dynamic> detail = await _fetchRideRecordDetail(
           activityId,
@@ -118,6 +121,11 @@ class OneLapClient {
         final String detailFitUrlAlt = '${detail['fitUrl'] ?? ''}'.trim();
         final String detailDurl = '${detail['durl'] ?? ''}'.trim();
         final String detailFileKey = '${detail['fileKey'] ?? ''}'.trim();
+
+        final num? distRaw = detail['totalDistance'] as num?;
+        final num? timeRaw = detail['time'] as num?;
+        if (distRaw != null) detailDistanceKm = distRaw.toDouble() / 1000;
+        if (timeRaw != null) detailTimeSeconds = timeRaw.toInt();
 
         if (detailFitUrl.isNotEmpty) {
           rawFitUrl = detailFitUrl;
@@ -158,6 +166,8 @@ class OneLapClient {
           rawFitUrlAlt: rawFitUrlAlt.isEmpty ? null : rawFitUrlAlt,
           rawDurl: rawDurl.isEmpty ? null : rawDurl,
           rawFileKey: rawFileKey.isEmpty ? null : rawFileKey,
+          distanceKm: detailDistanceKm,
+          timeSeconds: detailTimeSeconds,
         ),
       );
       if (result.length >= effectiveLimit) break;
