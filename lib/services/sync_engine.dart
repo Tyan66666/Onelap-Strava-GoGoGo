@@ -66,7 +66,7 @@ class SyncEngine {
     this.rewriteService,
     this.uploadToStrava = true,
     this.uploadToXingzhe = false,
-    this.downloadConcurrency = 2,
+    this.downloadConcurrency = 3,
   });
 
   Future<SyncSummary> runOnce({
