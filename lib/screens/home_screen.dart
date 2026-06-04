@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../models/sync_progress.dart';
 import '../models/sync_result_banner.dart';
 import '../models/sync_summary.dart';
 import '../services/onelap_client.dart';
@@ -15,6 +16,71 @@ import '../services/xingzhe_client.dart';
 import '../services/sync_engine.dart';
 import 'settings_screen.dart';
 import 'sync_history_screen.dart';
+
+class _SyncProgressDialog extends StatelessWidget {
+  final SyncProgress progress;
+
+  const _SyncProgressDialog({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('正在同步'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (progress.totalActivities > 0) ...[
+            const Text('同步活动', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            LinearProgressIndicator(
+              value: progress.totalActivities > 0
+                  ? progress.processed / progress.totalActivities
+                  : 0,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${progress.processed}/${progress.totalActivities}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (progress.stravaEnabled && progress.uploadTotal > 0) ...[
+            const Text('上传至 Strava', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            LinearProgressIndicator(
+              value: progress.uploadTotal > 0
+                  ? progress.stravaUploaded / progress.uploadTotal
+                  : 0,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${progress.stravaUploaded}/${progress.uploadTotal}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (progress.xingzheEnabled && progress.uploadTotal > 0) ...[
+            const Text('上传至行者', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            LinearProgressIndicator(
+              value: progress.uploadTotal > 0
+                  ? progress.xingzheUploaded / progress.uploadTotal
+                  : 0,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${progress.xingzheUploaded}/${progress.uploadTotal}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+          if (progress.totalActivities == 0)
+            const Text('正在获取活动列表...', style: TextStyle(fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -180,20 +246,56 @@ class _HomeScreenState extends State<HomeScreen> {
         rewriteService: FitCoordinateRewriteService(),
       );
 
-      final summary = await engine.runOnce(
-        lookbackDays:
-            int.tryParse(settings[SettingsService.keyLookbackDays] ?? '') ?? 3,
+      final progressNotifier = ValueNotifier<SyncProgress>(
+        SyncProgress(
+          stravaEnabled: uploadToStrava,
+          xingzheEnabled: uploadToXingzhe,
+        ),
       );
-      await _loadLastSyncTime();
+
       if (!mounted) return;
-      setState(() => _syncing = false);
+      late BuildContext dialogContext;
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          dialogContext = ctx;
+          return ValueListenableBuilder<SyncProgress>(
+            valueListenable: progressNotifier,
+            builder: (ctx, progress, _) =>
+                _SyncProgressDialog(progress: progress),
+          );
+        },
+      );
 
-      // 保存 banner
-      final banner = SyncResultBanner.fromSyncSummary(summary);
-      await _stateStore.saveSyncResultBanner(banner);
-      await _loadBanners();
+      try {
+        final summary = await engine.runOnce(
+          lookbackDays:
+              int.tryParse(settings[SettingsService.keyLookbackDays] ?? '') ??
+              3,
+          onProgress: (p) => progressNotifier.value = p,
+        );
 
-      _showSyncResult(summary);
+        await _loadLastSyncTime();
+
+        final banner = SyncResultBanner.fromSyncSummary(summary);
+        await _stateStore.saveSyncResultBanner(banner);
+        await _loadBanners();
+
+        if (!mounted) return;
+        Navigator.of(dialogContext).pop();
+        setState(() => _syncing = false);
+        _showSyncResult(summary);
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.of(dialogContext).pop();
+        setState(() {
+          _error = e.toString();
+          _syncing = false;
+        });
+      } finally {
+        progressNotifier.dispose();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/onelap_activity.dart';
+import '../models/sync_progress.dart';
 import '../models/sync_summary.dart';
 import '../models/sync_record.dart';
 import 'concurrency_pool.dart';
@@ -72,6 +73,7 @@ class SyncEngine {
   Future<SyncSummary> runOnce({
     DateTime? sinceDate,
     int lookbackDays = 3,
+    void Function(SyncProgress)? onProgress,
   }) async {
     final since =
         sinceDate ?? DateTime.now().subtract(Duration(days: lookbackDays));
@@ -91,6 +93,13 @@ class SyncEngine {
         abortedReason: 'risk-control',
       );
     }
+
+    var progress = SyncProgress(
+      totalActivities: activities.length,
+      stravaEnabled: uploadToStrava,
+      xingzheEnabled: uploadToXingzhe,
+    );
+    onProgress?.call(progress);
 
     int deduped = 0, success = 0, failed = 0;
     final List<String> failureReasons = [];
@@ -127,6 +136,7 @@ class SyncEngine {
     final downloadResults = await pool.runAll(downloadTasks);
 
     // Phase 2: Process each downloaded activity sequentially
+    int processedCount = 0;
     for (final dlResult in downloadResults) {
       if (dlResult is! _DownloadResult) continue;
       final item = dlResult.item;
@@ -161,6 +171,9 @@ class SyncEngine {
             ),
           );
         }
+        processedCount++;
+        progress = progress.copyWith(processed: processedCount);
+        onProgress?.call(progress);
         continue;
       }
 
@@ -249,6 +262,9 @@ class SyncEngine {
                 platformResults: preSkipped,
               ),
             );
+            processedCount++;
+            progress = progress.copyWith(processed: processedCount);
+            onProgress?.call(progress);
             continue;
           }
         }
@@ -268,6 +284,9 @@ class SyncEngine {
           syncRecords.add(
             _failedRecord('', item, sessionMeta, 'fingerprint', '无法生成指纹'),
           );
+          processedCount++;
+          progress = progress.copyWith(processed: processedCount);
+          onProgress?.call(progress);
           continue;
         }
 
@@ -344,6 +363,9 @@ class SyncEngine {
               platformResults: preSkipped,
             ),
           );
+          processedCount++;
+          progress = progress.copyWith(processed: processedCount);
+          onProgress?.call(progress);
           continue;
         }
       }
@@ -372,6 +394,9 @@ class SyncEngine {
       int platformsUploaded = 0;
       int platformsFailed = 0;
       final now = DateTime.now().toIso8601String();
+
+      progress = progress.copyWith(uploadTotal: progress.uploadTotal + 1);
+      onProgress?.call(progress);
 
       // ---- upload to Strava + Xingzhe in parallel ----
       final List<_PlatformUploadResult> stravaResults = [];
@@ -438,6 +463,22 @@ class SyncEngine {
         xingzheFailures.addAll(r.failures);
         failureReasons.addAll(r.failureReasons);
       }
+
+      final stravaInc = stravaResults.fold<int>(
+        0,
+        (sum, r) => sum + r.success + r.deduped,
+      );
+      final xingzheInc = xingzheResults.fold<int>(
+        0,
+        (sum, r) => sum + r.success + r.deduped,
+      );
+      progress = progress.copyWith(
+        stravaUploaded: progress.stravaUploaded + stravaInc,
+        xingzheUploaded: progress.xingzheUploaded + xingzheInc,
+      );
+      processedCount++;
+      progress = progress.copyWith(processed: processedCount);
+      onProgress?.call(progress);
 
       // ---- 6. 更新计数 ----
       if (platformsUploaded > 0) {
