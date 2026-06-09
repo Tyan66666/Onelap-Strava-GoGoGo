@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import WebKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -33,5 +34,29 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     sharedFitIntakeBridge.configure(binaryMessenger: engineBridge.applicationRegistrar.messenger())
+
+    let controller = window?.rootViewController as! FlutterViewController
+    let cookieChannel = FlutterMethodChannel(
+      name: "onelap_strava_sync/cookie",
+      binaryMessenger: controller.binaryMessenger
+    )
+    cookieChannel.setMethodCallHandler { (call, result) in
+      if call.method == "getCookies" {
+        guard let urlStr = call.arguments as? String,
+              let url = URL(string: urlStr) else {
+          result("")
+          return
+        }
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+          let filtered = cookies.filter { cookie in
+            cookie.domain.lowercased().contains("strava.com")
+          }
+          let cookieString = filtered.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+          result(cookieString)
+        }
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }

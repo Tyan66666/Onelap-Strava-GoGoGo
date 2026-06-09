@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class StravaWebLoginScreen extends StatefulWidget {
@@ -11,6 +12,7 @@ class StravaWebLoginScreen extends StatefulWidget {
 }
 
 class _StravaWebLoginScreenState extends State<StravaWebLoginScreen> {
+  static const _cookieChannel = MethodChannel('onelap_strava_sync/cookie');
   late final WebViewController _controller;
   bool _loading = true;
   bool _didComplete = false;
@@ -21,6 +23,10 @@ class _StravaWebLoginScreenState extends State<StravaWebLoginScreen> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent(
+        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36',
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {
@@ -40,15 +46,27 @@ class _StravaWebLoginScreenState extends State<StravaWebLoginScreen> {
           },
           onWebResourceError: (error) {
             if (!_didComplete && mounted && error.isForMainFrame == true) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('页面加载失败: ${error.description}'),
-                  action: SnackBarAction(
-                    label: '重试',
-                    onPressed: () => _controller.reload(),
+              final url = error.url ?? '';
+              if (url.contains('accounts.google.com') &&
+                  error.errorCode == -1 &&
+                  error.description.contains('403')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Google 不允许在应用内登录，请使用邮箱密码登录'),
+                    duration: Duration(seconds: 5),
                   ),
-                ),
-              );
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('页面加载失败: ${error.description}'),
+                    action: SnackBarAction(
+                      label: '重试',
+                      onPressed: () => _controller.reload(),
+                    ),
+                  ),
+                );
+              }
             }
           },
         ),
@@ -60,10 +78,20 @@ class _StravaWebLoginScreenState extends State<StravaWebLoginScreen> {
     if (_didComplete) return;
     _didComplete = true;
 
-    final result = await _controller.runJavaScriptReturningResult(
-      'document.cookie',
-    );
-    final cookieString = result.toString();
+    String cookieString;
+    try {
+      cookieString =
+          await _cookieChannel.invokeMethod<String>(
+            'getCookies',
+            'https://www.strava.com',
+          ) ??
+          '';
+    } catch (_) {
+      final result = await _controller.runJavaScriptReturningResult(
+        'document.cookie',
+      );
+      cookieString = result.toString();
+    }
 
     if (mounted) {
       widget.onLoginSuccess(cookieString);
