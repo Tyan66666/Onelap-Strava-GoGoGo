@@ -824,6 +824,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (result == true && mounted) {
                   await _load();
                   if (mounted) {
+                    // ignore: use_build_context_synchronously
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Strava 登录成功')),
                     );

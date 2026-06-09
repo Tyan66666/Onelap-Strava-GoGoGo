@@ -370,11 +370,13 @@ class _HomeScreenState extends State<HomeScreen> {
         await _loadBanners();
 
         if (!mounted) return;
+        // ignore: use_build_context_synchronously
         Navigator.of(dialogContext).pop();
         setState(() => _syncing = false);
         _showSyncResult(summary);
       } catch (e) {
         if (!mounted) return;
+        // ignore: use_build_context_synchronously
         Navigator.of(dialogContext).pop();
         setState(() {
           _error = e.toString();
