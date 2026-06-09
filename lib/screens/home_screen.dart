@@ -19,6 +19,8 @@ import '../services/xingzhe_client.dart';
 import '../services/sync_engine.dart';
 import 'settings_screen.dart';
 import 'sync_history_screen.dart';
+import '../models/update_info.dart';
+import '../services/update_checker.dart';
 
 class _SyncProgressDialog extends StatelessWidget {
   final SyncProgress progress;
@@ -110,9 +112,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadLastSyncTime();
     _loadBanners();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _showAboutIfFirstLaunch(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _showAboutIfFirstLaunch();
+      _checkForUpdate();
+    });
   }
 
   Future<void> _loadLastSyncTime() async {
@@ -130,8 +133,64 @@ class _HomeScreenState extends State<HomeScreen> {
     final shown = prefs.getBool(_prefKeyAboutShown) ?? false;
     if (!shown) {
       await prefs.setBool(_prefKeyAboutShown, true);
-      if (mounted) _showAbout();
+      if (mounted) await _showAbout();
     }
+  }
+
+  Future<void> _checkForUpdate() async {
+    final updateInfo = await UpdateChecker.check();
+    if (!mounted || !updateInfo.hasUpdate) return;
+    _showUpdateDialog(updateInfo);
+  }
+
+  void _showUpdateDialog(UpdateInfo info) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('发现新版本'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '最新版本: v${info.latestVersion}',
+                style: const TextStyle(fontSize: 14),
+              ),
+              Text(
+                '当前版本: v${info.currentVersion}',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              if (info.releaseNotes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  '更新内容:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  info.releaseNotes,
+                  style: const TextStyle(fontSize: 13, height: 1.5),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _launchUrl(info.downloadUrl);
+            },
+            child: const Text('下载更新'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('稍后再说'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _launchUrl(String url) async {
@@ -787,12 +846,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showAbout() async {
+  Future<void> _showAbout() async {
     final info = await PackageInfo.fromPlatform();
     final version = info.version;
 
     if (!mounted) return;
-    showDialog<void>(
+    await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('关于 顽爪爪同步'),
@@ -809,6 +868,21 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 '版本 $version',
                 style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 4),
+              InkWell(
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _checkForUpdate();
+                },
+                child: const Text(
+                  '检查更新',
+                  style: TextStyle(
+                    color: Colors.blue,
+                    fontSize: 13,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               const Text('免责声明', style: TextStyle(fontWeight: FontWeight.bold)),
