@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class StravaWebLoginScreen extends StatefulWidget {
@@ -57,24 +56,14 @@ class _StravaWebLoginScreenState extends State<StravaWebLoginScreen> {
       ..loadRequest(Uri.parse('https://www.strava.com/login'));
   }
 
-  static const _cookieChannel = MethodChannel('onelap_strava_sync/cookie');
-
   Future<void> _handleLoginSuccess() async {
     if (_didComplete) return;
     _didComplete = true;
 
-    String cookieString;
-    try {
-      cookieString = await _cookieChannel.invokeMethod<String>(
-        'getCookies',
-        'https://www.strava.com',
-      ) ?? '';
-    } catch (_) {
-      final result = await _controller.runJavaScriptReturningResult(
-        'document.cookie',
-      );
-      cookieString = result.toString();
-    }
+    final result = await _controller.runJavaScriptReturningResult(
+      'document.cookie',
+    );
+    final cookieString = result.toString();
 
     if (mounted) {
       widget.onLoginSuccess(cookieString);
