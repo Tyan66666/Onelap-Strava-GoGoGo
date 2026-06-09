@@ -128,6 +128,17 @@ git tag v1.0.18 && git push origin v1.0.18
 - **Worktrees**: `.worktrees/` is gitignored — manage them separately from repo edits.
 - **Change hygiene**: make the smallest change that fully solves the task. Don't rewrite unrelated files for style preferences. Don't remove or rename persisted keys, public methods, or user-visible copy without a task-driven reason.
 
+## Lessons Learned
+
+- **Don't trust external input types.** API responses may be String, List, or Map depending on encoding. Verify types before casting; use `jsonDecode` or type checks.
+- **New branches must walk the full path.** When adding a new `if` branch, trace from function entry to exit. Check every early return, every guard — the new branch may be blocked by a pre-existing check that doesn't apply to it.
+- **Persist settings immediately.** If a user selects an option, save it on change. Don't rely on a separate "Save" button for settings that feel instant to the user.
+- **Platform boundaries require native workarounds.** WebView's `document.cookie` can't read httpOnly cookies. Use platform-specific APIs (MethodChannel + native CookieManager) instead of fighting the platform.
+- **Wrap exceptions at the boundary.** Catch HTTP/network exceptions in the method that makes the call and re-throw as business exceptions. Never let raw `DioException` or `IOException` leak to callers.
+- **Timeout errors need context.** Include the last known state (e.g., last workflow value) in timeout messages. "Timeout" alone doesn't tell you if it's still processing or if the state is unrecognized.
+- **Verify by testing, not guessing.** Don't assume API state values, cookie visibility, or response formats. Capture real traffic to confirm.
+- **Get a second review.** Your code has blind spots. A reviewer (subagent or human) catches interface mismatches, missing edge cases, and logic ordering issues you'll miss.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
