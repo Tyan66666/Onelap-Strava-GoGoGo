@@ -47,6 +47,8 @@ class SettingsService {
   static const keyStravaRefreshToken = 'STRAVA_REFRESH_TOKEN';
   static const keyStravaAccessToken = 'STRAVA_ACCESS_TOKEN';
   static const keyStravaExpiresAt = 'STRAVA_EXPIRES_AT';
+  static const keyStravaUploadMode = 'STRAVA_UPLOAD_MODE';
+  static const keyStravaWebCookies = 'STRAVA_WEB_COOKIES';
   static const keyXingzheUsername = 'XINGZHE_USERNAME';
   static const keyXingzhePassword = 'XINGZHE_PASSWORD';
   static const keyXingzheSessionId = 'XINGZHE_SESSION_ID';
@@ -63,6 +65,8 @@ class SettingsService {
     keyStravaRefreshToken,
     keyStravaAccessToken,
     keyStravaExpiresAt,
+    keyStravaUploadMode,
+    keyStravaWebCookies,
     keyXingzheUsername,
     keyXingzhePassword,
     keyXingzheSessionId,

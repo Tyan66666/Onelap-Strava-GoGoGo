@@ -27,7 +27,8 @@ Platform folders (`android/`, `ios/`, etc.) — only edit when the task requires
 
 ## Key Technical Facts
 
-- **Two destination platforms**: Strava (upload + poll via REST API) and Xingzhe (upload + poll via web session). Both can be enabled/disabled independently.
+- **Two destination platforms**: Strava (upload + poll via REST API or web session) and Xingzhe (upload + poll via web session). Both can be enabled/disabled independently.
+- **Strava upload modes**: API mode uses OAuth (`strava_client.dart`), web mode uses session cookies (`strava_web_client.dart`). Switchable in settings.
 - **Deduplication**: two-layer — `fingerprint` (SHA256 of FIT bytes + recordKey + startTime) and `dedupeKey` (startTime + distance) as a stable fallback. See `dedupe_service.dart` and `state_store.dart`.
 - **Coordinate conversion**: optional GCJ-02 → WGS84 rewrite before upload, using `fit_tool` package.
 - **Strava OAuth**: done via `webview_flutter` in `strava_auth_screen.dart`. Tokens flow back into `SettingsService`.
@@ -37,6 +38,7 @@ Platform folders (`android/`, `ios/`, etc.) — only edit when the task requires
 - **HTTP client**: `Dio` everywhere — with explicit timeouts (30s connect/receive) and cookie manager for OneLap.
 - **Error types**:
   - `StravaRetriableError` / `StravaPermanentError` — for API 4xx vs 5xx distinction
+  - `StravaWebSessionExpiredError` / `StravaWebUploadError` — web upload session expiry and upload failures
   - `OnelapRiskControlError` — risk-control triggered, sync aborted gracefully
   - `_isIdempotentSuccess()` in `sync_engine.dart` — catches "already uploaded" / duplicate responses as success
 

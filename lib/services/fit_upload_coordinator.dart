@@ -198,11 +198,23 @@ class FitUploadCoordinator {
     Map<String, String> settings,
   ) {
     for (final FitUploadPlatform platform in targets) {
-      if (platform == FitUploadPlatform.strava &&
-          (!_hasValue(settings, SettingsService.keyStravaClientId) ||
+      if (platform == FitUploadPlatform.strava) {
+        final bool isWebMode =
+            (settings[SettingsService.keyStravaUploadMode] ?? '')
+                .trim()
+                .toLowerCase() ==
+            'web';
+        if (isWebMode) {
+          if (!_hasValue(settings, SettingsService.keyStravaWebCookies)) {
+            return false;
+          }
+        } else {
+          if (!_hasValue(settings, SettingsService.keyStravaClientId) ||
               !_hasValue(settings, SettingsService.keyStravaClientSecret) ||
-              !_hasValue(settings, SettingsService.keyStravaRefreshToken))) {
-        return false;
+              !_hasValue(settings, SettingsService.keyStravaRefreshToken)) {
+            return false;
+          }
+        }
       }
 
       if (platform == FitUploadPlatform.xingzhe &&

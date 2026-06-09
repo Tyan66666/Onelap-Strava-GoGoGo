@@ -12,6 +12,9 @@ import '../services/settings_service.dart';
 import '../services/sync_failure_formatter.dart';
 import '../services/state_store.dart';
 import '../services/strava_client.dart';
+import '../services/strava_upload_client.dart';
+import '../services/strava_web_client.dart';
+import '../services/strava_web_sync_adapter.dart';
 import '../services/xingzhe_client.dart';
 import '../services/sync_engine.dart';
 import 'settings_screen.dart';
@@ -218,15 +221,40 @@ class _HomeScreenState extends State<HomeScreen> {
         username: username,
         password: password,
       );
-      StravaClient? strava;
+      StravaUploadClient? strava;
       if (uploadToStrava) {
-        strava = StravaClient(
-          clientId: stravaClientId,
-          clientSecret: stravaClientSecret,
-          refreshToken: stravaRefreshToken,
-          accessToken: stravaAccessToken,
-          expiresAt: stravaExpiresAt,
-        );
+        final stravaUploadMode =
+            settings[SettingsService.keyStravaUploadMode] ?? 'api';
+        if (stravaUploadMode == 'web') {
+          final webCookies =
+              settings[SettingsService.keyStravaWebCookies] ?? '';
+          if (webCookies.isEmpty) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('请先在设置中登录 Strava 网页版')),
+            );
+            setState(() => _syncing = false);
+            return;
+          }
+          final webClient = StravaWebClient(cookies: webCookies);
+          if (!await webClient.isSessionValid()) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Strava 网页登录已过期，请重新登录')),
+            );
+            setState(() => _syncing = false);
+            return;
+          }
+          strava = StravaWebSyncAdapter(cookies: webCookies);
+        } else {
+          strava = StravaClient(
+            clientId: stravaClientId,
+            clientSecret: stravaClientSecret,
+            refreshToken: stravaRefreshToken,
+            accessToken: stravaAccessToken,
+            expiresAt: stravaExpiresAt,
+          );
+        }
       }
       XingzheClient? xingzhe;
       if (uploadToXingzhe) {

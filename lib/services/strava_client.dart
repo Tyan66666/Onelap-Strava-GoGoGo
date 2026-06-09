@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'settings_service.dart';
+import 'strava_upload_client.dart';
 
 class StravaRetriableError implements Exception {
   final String message;
@@ -16,7 +17,7 @@ class StravaPermanentError implements Exception {
   String toString() => 'StravaPermanentError: $message';
 }
 
-class StravaClient {
+class StravaClient implements StravaUploadClient {
   final String clientId;
   final String clientSecret;
   String refreshToken;
@@ -42,6 +43,7 @@ class StravaClient {
              ),
            );
 
+  @override
   Future<String> ensureAccessToken() async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     if (accessToken.isNotEmpty && expiresAt > now) return accessToken;
@@ -80,6 +82,7 @@ class StravaClient {
     return accessToken;
   }
 
+  @override
   Future<int> uploadFit(File file, {int retries = 3}) async {
     final String dataType = _dataTypeForFile(file);
 
@@ -132,6 +135,7 @@ class StravaClient {
     return 'fit';
   }
 
+  @override
   Future<Map<String, dynamic>> pollUpload(
     int uploadId, {
     int maxAttempts = 10,
@@ -170,6 +174,7 @@ class StravaClient {
     return last;
   }
 
+  @override
   Future<bool> activityExists(int activityId) async {
     final token = await ensureAccessToken();
     try {

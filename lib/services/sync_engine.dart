@@ -9,7 +9,7 @@ import 'concurrency_pool.dart';
 import 'dedupe_service.dart';
 import 'fit_coordinate_rewrite_service.dart';
 import 'onelap_client.dart';
-import 'strava_client.dart';
+import 'strava_upload_client.dart';
 import 'state_store.dart';
 import 'xingzhe_client.dart';
 
@@ -49,7 +49,7 @@ class _DownloadResult {
 
 class SyncEngine {
   final OneLapClient oneLapClient;
-  final StravaClient? stravaClient;
+  final StravaUploadClient? stravaClient;
   final XingzheClient? xingzheClient;
   final StateStore stateStore;
   final bool gcjCorrectionEnabled;

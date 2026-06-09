@@ -26,15 +26,21 @@
 ## 使用前提 / Prerequisites
 
 1. OneLap（顽鹿）账号 / An OneLap account
-2. 自己的 Strava API 应用（Client ID + Client Secret）/ Your own Strava API app
+2. Strava 账号 / A Strava account
 
-> Strava 对个人开发者 API 有配额限制（每 15 分钟 200 次、每天 2000 次），因此需要你使用自己的 Strava API 凭证，详见 App 内设置说明。
+> **上传方式：** 支持两种 Strava 上传方式，可在设置中切换：
+> - **API 模式（推荐）：** 需要自己的 Strava API 应用（Client ID + Client Secret），最稳定。Strava 对个人开发者 API 有配额限制（每 15 分钟 200 次、每天 2000 次）。
+> - **网页模式：** 通过 WebView 登录 Strava 账号即可，无需 API 凭证。2026 年 7 月 Strava API 将需要会员订阅，届时可切换到此模式。
 >
-> *Strava enforces API rate limits (200 req/15 min, 2000 req/day), so each user must use their own Strava API credentials. See in-app instructions for details.*
+> *Upload modes: switch in Settings.*
+> - *API mode (recommended): requires your own Strava API app (Client ID + Client Subject). Strava enforces API rate limits (200 req/15 min, 2000 req/day).*
+> - *Web mode: log in via WebView, no API credentials needed. Starting July 2026, Strava API will require a paid subscription — switch to this mode then.*
 
 ---
 
-## 注册 Strava API / Setting Up Strava API
+## 注册 Strava API（API 模式需要）/ Setting Up Strava API (API mode only)
+
+> 如果使用网页模式，可跳过此节。/ Skip this section if using web mode.
 
 1. 登录 https://www.strava.com/settings/api / Log in at https://www.strava.com/settings/api
 2. 创建应用，Authorization Callback Domain 填 `localhost` / Create an app, set Authorization Callback Domain to `localhost`
@@ -56,7 +62,11 @@
 
 可以在设置中选择上传到 Strava、行者，或同时上传到两个平台；每个平台都会独立判重并单独记录结果。
 
+Strava 上传支持 API 和网页两种模式：API 模式需要配置 Client ID/Secret，网页模式只需登录 Strava 账号。
+
 *In Settings, you can choose Strava, Xingzhe, or both. Each platform is deduplicated independently and keeps its own sync result.*
+
+*Strava upload supports API and Web modes: API mode requires Client ID/Secret, Web mode only needs a Strava account login.*
 
 如果你的来源轨迹使用 GCJ-02，或者导入到 Strava 后路线明显偏移，可以在设置中开启「上传前将 GCJ-02 转为 WGS84」。该选项同时作用于顽鹿自动同步和系统分享上传。
 

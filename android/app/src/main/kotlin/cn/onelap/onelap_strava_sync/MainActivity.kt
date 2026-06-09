@@ -5,6 +5,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.webkit.CookieManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -21,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val methodChannelName = "onelap_strava_sync/share_intake"
         const val eventChannelName = "onelap_strava_sync/shared_fit_events"
+        const val cookieChannelName = "onelap_strava_sync/cookie"
         const val initialShareMethod = "getInitialSharedFit"
         const val sourcePlatform = "android"
         const val draftType = "draft"
@@ -65,6 +67,18 @@ class MainActivity : FlutterActivity() {
                     }
                 },
             )
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, cookieChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getCookies" -> {
+                        val url = call.arguments as? String ?: ""
+                        val cookies = CookieManager.getInstance().getCookie(url)
+                        result.success(cookies ?: "")
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'fit_upload_coordinator.dart';
 import 'settings_service.dart';
 import 'strava_client.dart';
+import 'strava_web_client.dart';
 
 abstract class StravaFitUploadClient {
   Future<int> uploadFit(File file);
@@ -57,6 +58,18 @@ class StravaFitUploader implements FitPlatformUploader {
   static StravaFitUploadClient _defaultClientFactory(
     Map<String, String> settings,
   ) {
+    final bool isWebMode =
+        (settings[SettingsService.keyStravaUploadMode] ?? '')
+            .trim()
+            .toLowerCase() ==
+        'web';
+    if (isWebMode) {
+      return StravaWebClientAdapter(
+        StravaWebClient(
+          cookies: settings[SettingsService.keyStravaWebCookies] ?? '',
+        ),
+      );
+    }
     return _StravaFitUploadClientAdapter(
       StravaClient(
         clientId: settings[SettingsService.keyStravaClientId] ?? '',
@@ -103,6 +116,23 @@ class _StravaFitUploadClientAdapter implements StravaFitUploadClient {
   @override
   Future<int> uploadFit(File file) {
     return _client.uploadFit(file);
+  }
+
+  @override
+  Future<Map<String, dynamic>> pollUpload(int uploadId) {
+    return _client.pollUpload(uploadId);
+  }
+}
+
+class StravaWebClientAdapter implements StravaFitUploadClient {
+  StravaWebClientAdapter(this._client);
+
+  final StravaWebClient _client;
+
+  @override
+  Future<int> uploadFit(File file) async {
+    final Map<String, dynamic> result = await _client.uploadFit(file);
+    return result['upload_id'] as int;
   }
 
   @override
