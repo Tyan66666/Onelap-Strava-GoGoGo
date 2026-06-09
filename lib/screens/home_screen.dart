@@ -88,7 +88,9 @@ class _SyncProgressDialog extends StatelessWidget {
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.settingsService});
+
+  final SettingsService? settingsService;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -96,7 +98,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _stateStore = StateStore();
-  final _settingsService = SettingsService();
+  late final SettingsService _settingsService;
 
   bool _syncing = false;
   String? _error;
@@ -110,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _settingsService = widget.settingsService ?? SettingsService();
     _loadLastSyncTime();
     _loadBanners();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -253,7 +256,11 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
+      final stravaUploadMode =
+          settings[SettingsService.keyStravaUploadMode] ?? 'api';
+
       if (uploadToStrava &&
+          stravaUploadMode == 'api' &&
           (stravaClientId.isEmpty ||
               stravaClientSecret.isEmpty ||
               stravaRefreshToken.isEmpty)) {
@@ -282,8 +289,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       StravaUploadClient? strava;
       if (uploadToStrava) {
-        final stravaUploadMode =
-            settings[SettingsService.keyStravaUploadMode] ?? 'api';
         if (stravaUploadMode == 'web') {
           final webCookies =
               settings[SettingsService.keyStravaWebCookies] ?? '';
