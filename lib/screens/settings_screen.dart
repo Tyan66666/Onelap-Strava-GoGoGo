@@ -40,7 +40,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _confirmedGcjCorrectionEnabled = false;
   bool _uploadToStrava = true;
   bool _uploadToXingzhe = false;
-  bool _savingUploadSettings = false;
+  bool _savingUploadToStrava = false;
+  bool _savingUploadToXingzhe = false;
+  bool? _pendingUploadToStrava;
+  bool? _pendingUploadToXingzhe;
+  bool _confirmedUploadToStrava = true;
+  bool _confirmedUploadToXingzhe = false;
   String _stravaUploadMode = 'api';
 
   static const _controllerKeys = [
@@ -102,44 +107,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _confirmedGcjCorrectionEnabled = _gcjCorrectionEnabled;
       _uploadToStrava = values[SettingsService.keyUploadToStrava] != 'false';
       _uploadToXingzhe = values[SettingsService.keyUploadToXingzhe] == 'true';
+      _confirmedUploadToStrava = _uploadToStrava;
+      _confirmedUploadToXingzhe = _uploadToXingzhe;
       _stravaUploadMode = values[SettingsService.keyStravaUploadMode] == 'web'
           ? 'web'
           : 'api';
       _loading = false;
     });
-  }
-
-  Future<bool> _save() async {
-    final String? lookbackDays = _validatedLookbackDays();
-    if (lookbackDays == null) {
-      return false;
-    }
-
-    final values = {
-      for (final key in _controllerKeys) key: _controllers[key]!.text.trim(),
-      SettingsService.keyLookbackDays: lookbackDays,
-      SettingsService.keyGcjCorrectionEnabled: _gcjCorrectionEnabled.toString(),
-      SettingsService.keyUploadToStrava: _uploadToStrava.toString(),
-      SettingsService.keyUploadToXingzhe: _uploadToXingzhe.toString(),
-      SettingsService.keyStravaUploadMode: _stravaUploadMode,
-    };
-    try {
-      await _settingsService.saveSettings(values);
-      _confirmedGcjCorrectionEnabled = _gcjCorrectionEnabled;
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('设置已保存')));
-      }
-      return true;
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
-      }
-      return false;
-    }
   }
 
   Future<void> _saveOneLapCredentials({bool validateAfterSave = false}) async {
@@ -418,10 +392,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _saveUploadSettings() async {
-    _dismissKeyboard();
-
-    if (!_uploadToStrava && !_uploadToXingzhe) {
+  Future<void> _toggleUploadToStrava(bool value) async {
+    if (!value && !_uploadToXingzhe) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -430,35 +402,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    _savingUploadSettings = true;
-    try {
-      await _settingsService.saveSettings({
-        SettingsService.keyUploadToStrava: _uploadToStrava.toString(),
-        SettingsService.keyUploadToXingzhe: _uploadToXingzhe.toString(),
-        SettingsService.keyStravaUploadMode: _stravaUploadMode,
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('上传设置已保存')));
+    setState(() => _uploadToStrava = value);
+
+    if (_savingUploadToStrava) {
+      _pendingUploadToStrava = value;
+      return;
+    }
+
+    _savingUploadToStrava = true;
+    bool valueToPersist = value;
+
+    while (true) {
+      _pendingUploadToStrava = null;
+
+      try {
+        await _settingsService.saveSettings({
+          SettingsService.keyUploadToStrava: valueToPersist.toString(),
+        });
+        _confirmedUploadToStrava = valueToPersist;
+      } catch (e) {
+        _savingUploadToStrava = false;
+        _pendingUploadToStrava = null;
+        if (mounted) {
+          setState(() => _uploadToStrava = _confirmedUploadToStrava);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+        }
+        return;
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+
+      final bool? pendingValue = _pendingUploadToStrava;
+      if (pendingValue == null || pendingValue == valueToPersist) {
+        _savingUploadToStrava = false;
+        return;
       }
-    } finally {
-      _savingUploadSettings = false;
+
+      valueToPersist = pendingValue;
     }
   }
 
-  void _toggleUploadToStrava(bool value) {
-    setState(() => _uploadToStrava = value);
-  }
+  Future<void> _toggleUploadToXingzhe(bool value) async {
+    if (!value && !_uploadToStrava) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('至少需要选择一个上传平台')));
+      }
+      return;
+    }
 
-  void _toggleUploadToXingzhe(bool value) {
     setState(() => _uploadToXingzhe = value);
+
+    if (_savingUploadToXingzhe) {
+      _pendingUploadToXingzhe = value;
+      return;
+    }
+
+    _savingUploadToXingzhe = true;
+    bool valueToPersist = value;
+
+    while (true) {
+      _pendingUploadToXingzhe = null;
+
+      try {
+        await _settingsService.saveSettings({
+          SettingsService.keyUploadToXingzhe: valueToPersist.toString(),
+        });
+        _confirmedUploadToXingzhe = valueToPersist;
+      } catch (e) {
+        _savingUploadToXingzhe = false;
+        _pendingUploadToXingzhe = null;
+        if (mounted) {
+          setState(() => _uploadToXingzhe = _confirmedUploadToXingzhe);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+        }
+        return;
+      }
+
+      final bool? pendingValue = _pendingUploadToXingzhe;
+      if (pendingValue == null || pendingValue == valueToPersist) {
+        _savingUploadToXingzhe = false;
+        return;
+      }
+
+      valueToPersist = pendingValue;
+    }
   }
 
   void _dismissKeyboard() {
@@ -499,9 +530,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    final bool saved = await _save();
-    if (!mounted) return;
-    if (!saved) return;
+    try {
+      await _settingsService.saveSettings({
+        SettingsService.keyStravaClientId: clientId,
+        SettingsService.keyStravaClientSecret: clientSecret,
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+      }
+      return;
+    }
 
     final navigator = Navigator.of(context);
 
@@ -724,23 +765,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             value: _uploadToXingzhe,
             onChanged: _toggleUploadToXingzhe,
           ),
-          ElevatedButton(
-            onPressed: _saveUploadSettings,
-            child: _savingUploadSettings
-                ? const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      SizedBox(width: 8),
-                      Text('保存中...'),
-                    ],
-                  )
-                : const Text('保存上传设置'),
-          ),
           const SizedBox(height: 16),
           if (_stravaUploadMode == 'api') ...[
             const Text(
@@ -882,7 +906,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          ElevatedButton(onPressed: _save, child: const Text('保存')),
         ],
       ),
     );

@@ -22,9 +22,7 @@ void main() {
           SettingsService.keyStravaUploadMode: 'web',
         });
 
-        await tester.pumpWidget(
-          const MaterialApp(home: HomeScreen()),
-        );
+        await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
         await tester.pumpAndSettle();
 
         await tester.tap(find.text('立即同步'));
@@ -34,26 +32,23 @@ void main() {
       },
     );
 
-    testWidgets(
-      'api mode blocks sync when Strava API credentials are empty',
-      (WidgetTester tester) async {
-        FlutterSecureStorage.setMockInitialValues(<String, String>{
-          SettingsService.keyOneLapUsername: 'user@test.com',
-          SettingsService.keyOneLapPassword: 'pass',
-          SettingsService.keyUploadToStrava: 'true',
-          SettingsService.keyStravaUploadMode: 'api',
-        });
+    testWidgets('api mode blocks sync when Strava API credentials are empty', (
+      WidgetTester tester,
+    ) async {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{
+        SettingsService.keyOneLapUsername: 'user@test.com',
+        SettingsService.keyOneLapPassword: 'pass',
+        SettingsService.keyUploadToStrava: 'true',
+        SettingsService.keyStravaUploadMode: 'api',
+      });
 
-        await tester.pumpWidget(
-          const MaterialApp(home: HomeScreen()),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.text('立即同步'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('立即同步'));
+      await tester.pumpAndSettle();
 
-        expect(find.text('请先在设置中填写 Strava 凭证'), findsOneWidget);
-      },
-    );
+      expect(find.text('请先在设置中填写 Strava 凭证'), findsOneWidget);
+    });
   });
 }

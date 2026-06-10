@@ -95,37 +95,6 @@ class FailControlledWriteSettingsStore extends ControlledWriteSettingsStore {
   }
 }
 
-class CrossSaveRaceSettingsStore extends InMemorySettingsStore {
-  CrossSaveRaceSettingsStore([super.initialValues]);
-
-  Completer<void>? firstGcjWriteCompleter;
-  bool failFirstGcjWrite = false;
-  int _gcjWriteCount = 0;
-
-  @override
-  Future<void> write({required String key, required String value}) {
-    if (key != SettingsService.keyGcjCorrectionEnabled) {
-      _values[key] = value;
-      return Future<void>.value();
-    }
-
-    if (_gcjWriteCount == 0) {
-      _gcjWriteCount++;
-      firstGcjWriteCompleter = Completer<void>();
-      return firstGcjWriteCompleter!.future.then((_) {
-        if (failFirstGcjWrite) {
-          throw Exception('save failed');
-        }
-        _values[key] = value;
-      });
-    }
-
-    _gcjWriteCount++;
-    _values[key] = value;
-    return Future<void>.value();
-  }
-}
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -197,7 +166,7 @@ void main() {
     FlutterSecureStorage.setMockInitialValues(<String, String>{});
   });
 
-  testWidgets('preserves entered credentials after successful Strava auth', (
+  testWidgets('preserves entered Strava credentials after successful auth', (
     WidgetTester tester,
   ) async {
     useLargeTestViewport(tester);
@@ -211,16 +180,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'OneLap 用户名', 'rider@example.com');
-    await enterVisibleText(tester, 'OneLap 密码', 'onelap-pass');
     await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
     await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
 
     await tapVisibleText(tester, '授权 Strava');
 
     final Map<String, String> settings = await SettingsService().loadSettings();
-    expect(settings[SettingsService.keyOneLapUsername], 'rider@example.com');
-    expect(settings[SettingsService.keyOneLapPassword], 'onelap-pass');
     expect(settings[SettingsService.keyStravaClientId], '12345');
     expect(settings[SettingsService.keyStravaClientSecret], 'secret-xyz');
   });
@@ -447,58 +412,6 @@ void main() {
     expect(settings[SettingsService.keyOneLapUsername], 'stable-user');
   });
 
-  testWidgets('general save rejects invalid lookback days', (
-    WidgetTester tester,
-  ) async {
-    useLargeTestViewport(tester);
-
-    final InMemorySettingsStore store = InMemorySettingsStore(<String, String>{
-      SettingsService.keyStravaClientId: 'stable-client-id',
-      SettingsService.keyLookbackDays: '3',
-    });
-    final SettingsService settingsService = SettingsService(store: store);
-
-    await tester.pumpWidget(
-      MaterialApp(home: SettingsScreen(settingsService: settingsService)),
-    );
-    await tester.pumpAndSettle();
-
-    await enterVisibleText(tester, 'Client ID（客户端ID）', 'new-client-id');
-    await enterVisibleText(tester, '同步最近几天（默认 3）', '0');
-
-    await tapVisibleText(tester, '保存');
-
-    expect(find.text('请输入大于 0 的整数天数'), findsOneWidget);
-    expect(find.text('设置已保存'), findsNothing);
-
-    final Map<String, String> settings = await settingsService.loadSettings();
-    expect(settings[SettingsService.keyLookbackDays], '3');
-    expect(settings[SettingsService.keyStravaClientId], 'stable-client-id');
-  });
-
-  testWidgets('general save failure shows error and no success state', (
-    WidgetTester tester,
-  ) async {
-    useLargeTestViewport(tester);
-
-    final SettingsService settingsService = SettingsService(
-      store: ThrowOnWriteSettingsStore(<String, String>{
-        SettingsService.keyLookbackDays: '3',
-      }),
-    );
-
-    await tester.pumpWidget(
-      MaterialApp(home: SettingsScreen(settingsService: settingsService)),
-    );
-    await tester.pumpAndSettle();
-
-    await enterVisibleText(tester, 'Client ID（客户端ID）', 'client-id');
-    await tapVisibleText(tester, '保存');
-
-    expect(find.text('设置保存失败: Exception: save failed'), findsOneWidget);
-    expect(find.text('设置已保存'), findsNothing);
-  });
-
   testWidgets('rewrite switch loads from stored settings', (
     WidgetTester tester,
   ) async {
@@ -656,48 +569,6 @@ void main() {
   );
 
   testWidgets(
-    'general save keeps confirmed rewrite state in sync during toggle race',
-    (WidgetTester tester) async {
-      useLargeTestViewport(tester);
-
-      final CrossSaveRaceSettingsStore store =
-          CrossSaveRaceSettingsStore(<String, String>{
-            SettingsService.keyGcjCorrectionEnabled: 'false',
-            SettingsService.keyLookbackDays: '3',
-          });
-      final SettingsService settingsService = SettingsService(store: store);
-
-      await tester.pumpWidget(
-        MaterialApp(home: SettingsScreen(settingsService: settingsService)),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.ensureVisible(gcjCorrectionSwitch());
-      await tester.tap(gcjCorrectionSwitch());
-      await tester.pump();
-
-      await tapVisibleText(tester, '保存');
-
-      final Map<String, String> settingsAfterSave = await settingsService
-          .loadSettings();
-      expect(
-        settingsAfterSave[SettingsService.keyGcjCorrectionEnabled],
-        'true',
-      );
-
-      store.failFirstGcjWrite = true;
-      store.firstGcjWriteCompleter!.complete();
-      await tester.pumpAndSettle();
-
-      final Switch rewriteSwitch = tester.widget<Switch>(gcjCorrectionSwitch());
-      expect(rewriteSwitch.value, isTrue);
-
-      final Map<String, String> settings = await settingsService.loadSettings();
-      expect(settings[SettingsService.keyGcjCorrectionEnabled], 'true');
-    },
-  );
-
-  testWidgets(
     'failed rewrite switch persistence reverts switch and shows error',
     (WidgetTester tester) async {
       useLargeTestViewport(tester);
@@ -723,69 +594,6 @@ void main() {
       expect(find.text('设置保存失败: Exception: save failed'), findsOneWidget);
     },
   );
-
-  testWidgets('Strava save flows preserve rewrite switch value', (
-    WidgetTester tester,
-  ) async {
-    useLargeTestViewport(tester);
-
-    FlutterSecureStorage.setMockInitialValues(<String, String>{
-      SettingsService.keyGcjCorrectionEnabled: 'true',
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettingsScreen(
-          authorizeStrava: (String clientId, String clientSecret) async => true,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
-    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
-
-    await tapVisibleText(tester, '保存');
-
-    Map<String, String> settings = await SettingsService().loadSettings();
-    expect(settings[SettingsService.keyGcjCorrectionEnabled], 'true');
-
-    await tapVisibleText(tester, '授权 Strava');
-
-    settings = await SettingsService().loadSettings();
-    expect(settings[SettingsService.keyGcjCorrectionEnabled], 'true');
-  });
-
-  testWidgets('Strava auth does not continue when general save is invalid', (
-    WidgetTester tester,
-  ) async {
-    useLargeTestViewport(tester);
-
-    int authorizeCalls = 0;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettingsScreen(
-          authorizeStrava: (String clientId, String clientSecret) async {
-            authorizeCalls++;
-            return true;
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
-    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
-    await enterVisibleText(tester, '同步最近几天（默认 3）', '0');
-
-    await tapVisibleText(tester, '授权 Strava');
-
-    expect(authorizeCalls, 0);
-    expect(find.text('请输入大于 0 的整数天数'), findsOneWidget);
-    expect(find.text('Strava 授权成功'), findsNothing);
-    expect(find.text('授权取消或失败'), findsNothing);
-  });
 
   testWidgets('submitting lookback days field saves sync settings', (
     WidgetTester tester,
@@ -923,4 +731,130 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('tapping upload to Strava toggle immediately persists setting', (
+    WidgetTester tester,
+  ) async {
+    useLargeTestViewport(tester);
+
+    final InMemorySettingsStore store = InMemorySettingsStore(<String, String>{
+      SettingsService.keyUploadToStrava: 'true',
+      SettingsService.keyUploadToXingzhe: 'true',
+      SettingsService.keyLookbackDays: '3',
+    });
+    final SettingsService settingsService = SettingsService(store: store);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettingsScreen(settingsService: settingsService)),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder stravaSwitch = find.descendant(
+      of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
+      matching: find.byType(Switch),
+    );
+    await tester.ensureVisible(stravaSwitch);
+    await tester.tap(stravaSwitch);
+    await tester.pumpAndSettle();
+
+    final Map<String, String> settings = await settingsService.loadSettings();
+    expect(settings[SettingsService.keyUploadToStrava], 'false');
+  });
+
+  testWidgets('tapping upload to Xingzhe toggle immediately persists setting', (
+    WidgetTester tester,
+  ) async {
+    useLargeTestViewport(tester);
+
+    final InMemorySettingsStore store = InMemorySettingsStore(<String, String>{
+      SettingsService.keyUploadToStrava: 'true',
+      SettingsService.keyUploadToXingzhe: 'false',
+      SettingsService.keyLookbackDays: '3',
+    });
+    final SettingsService settingsService = SettingsService(store: store);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SettingsScreen(settingsService: settingsService)),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder xingzheSwitch = find.descendant(
+      of: find.widgetWithText(SwitchListTile, '上传到 行者'),
+      matching: find.byType(Switch),
+    );
+    await tester.ensureVisible(xingzheSwitch);
+    await tester.tap(xingzheSwitch);
+    await tester.pumpAndSettle();
+
+    final Map<String, String> settings = await settingsService.loadSettings();
+    expect(settings[SettingsService.keyUploadToXingzhe], 'true');
+  });
+
+  testWidgets('cannot turn off both upload platforms', (
+    WidgetTester tester,
+  ) async {
+    useLargeTestViewport(tester);
+
+    FlutterSecureStorage.setMockInitialValues(<String, String>{
+      SettingsService.keyUploadToStrava: 'true',
+      SettingsService.keyUploadToXingzhe: 'true',
+      SettingsService.keyLookbackDays: '3',
+    });
+
+    await tester.pumpWidget(const MaterialApp(home: SettingsScreen()));
+    await tester.pumpAndSettle();
+
+    final Finder stravaSwitch = find.descendant(
+      of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
+      matching: find.byType(Switch),
+    );
+    await tester.ensureVisible(stravaSwitch);
+    await tester.tap(stravaSwitch);
+    await tester.pumpAndSettle();
+
+    final Finder xingzheSwitch = find.descendant(
+      of: find.widgetWithText(SwitchListTile, '上传到 行者'),
+      matching: find.byType(Switch),
+    );
+    await tester.ensureVisible(xingzheSwitch);
+    await tester.tap(xingzheSwitch);
+    await tester.pumpAndSettle();
+
+    expect(find.text('至少需要选择一个上传平台'), findsOneWidget);
+
+    final Map<String, String> settings = await SettingsService().loadSettings();
+    expect(settings[SettingsService.keyUploadToXingzhe], 'true');
+  });
+
+  testWidgets(
+    'failed upload toggle persistence reverts switch and shows error',
+    (WidgetTester tester) async {
+      useLargeTestViewport(tester);
+
+      final SettingsService settingsService = SettingsService(
+        store: ThrowOnWriteSettingsStore(<String, String>{
+          SettingsService.keyUploadToStrava: 'true',
+          SettingsService.keyUploadToXingzhe: 'true',
+          SettingsService.keyLookbackDays: '3',
+        }),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettingsScreen(settingsService: settingsService)),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder stravaSwitch = find.descendant(
+        of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
+        matching: find.byType(Switch),
+      );
+      await tester.ensureVisible(stravaSwitch);
+      await tester.tap(stravaSwitch);
+      await tester.pumpAndSettle();
+
+      final Switch switchWidget = tester.widget<Switch>(stravaSwitch);
+      expect(switchWidget.value, isTrue);
+      expect(find.text('设置保存失败: Exception: save failed'), findsOneWidget);
+    },
+  );
 }
