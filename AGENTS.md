@@ -76,6 +76,8 @@ flutter test
 
 Run in this order. CI enforces the same pipeline.
 
+- **MUST pass all three before merging to main**: `dart format`, `flutter analyze`, `flutter test`. Don't rely on CI alone — run locally first.
+
 ### Targeted test commands
 
 ```bash
@@ -142,7 +144,7 @@ git tag v1.0.18 && git push origin v1.0.18
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Onelap-Strava-GoGoGo** (2870 symbols, 5639 relationships, 184 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Onelap-Strava-GoGoGo** (2901 symbols, 5712 relationships, 183 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
