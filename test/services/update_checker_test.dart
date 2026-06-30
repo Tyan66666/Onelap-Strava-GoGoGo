@@ -71,6 +71,10 @@ void main() {
         return _jsonResponse({
           'tag_name': 'v99.0.0',
           'body': '## What is new\n- Feature A',
+          'assets': [
+            {'name': 'app-release.apk'},
+            {'name': 'app-release.dmg'},
+          ],
         });
       });
 
@@ -114,7 +118,13 @@ void main() {
 
     test('strips v prefix from tag_name before comparison', () async {
       final dio = _mockDio((options) async {
-        return _jsonResponse({'tag_name': 'v99.0.0', 'body': ''});
+        return _jsonResponse({
+          'tag_name': 'v99.0.0',
+          'body': '',
+          'assets': [
+            {'name': 'app-release.dmg'},
+          ],
+        });
       });
 
       final result = await UpdateChecker.check(
@@ -157,7 +167,13 @@ void main() {
 
     test('handles tag_name without v prefix', () async {
       final dio = _mockDio((options) async {
-        return _jsonResponse({'tag_name': '99.0.0', 'body': ''});
+        return _jsonResponse({
+          'tag_name': '99.0.0',
+          'body': '',
+          'assets': [
+            {'name': 'app-release.dmg'},
+          ],
+        });
       });
 
       final result = await UpdateChecker.check(
@@ -171,7 +187,12 @@ void main() {
 
     test('handles empty body gracefully', () async {
       final dio = _mockDio((options) async {
-        return _jsonResponse({'tag_name': 'v99.0.0'});
+        return _jsonResponse({
+          'tag_name': 'v99.0.0',
+          'assets': [
+            {'name': 'app-release.dmg'},
+          ],
+        });
       });
 
       final result = await UpdateChecker.check(
@@ -181,6 +202,45 @@ void main() {
 
       expect(result.hasUpdate, isTrue);
       expect(result.releaseNotes, isEmpty);
+    });
+
+    test(
+      'returns hasUpdate false when no asset matches current platform',
+      () async {
+        final dio = _mockDio((options) async {
+          return _jsonResponse({
+            'tag_name': 'v99.0.0',
+            'body': '',
+            'assets': [
+              {'name': 'app-release.apk'},
+            ],
+          });
+        });
+
+        final result = await UpdateChecker.check(
+          dio: dio,
+          currentVersion: '1.0.0',
+        );
+
+        expect(result.hasUpdate, isFalse);
+      },
+    );
+
+    test('returns hasUpdate false when assets list is empty', () async {
+      final dio = _mockDio((options) async {
+        return _jsonResponse({
+          'tag_name': 'v99.0.0',
+          'body': '',
+          'assets': <Map<String, dynamic>>[],
+        });
+      });
+
+      final result = await UpdateChecker.check(
+        dio: dio,
+        currentVersion: '1.0.0',
+      );
+
+      expect(result.hasUpdate, isFalse);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../models/update_info.dart';
@@ -22,6 +24,22 @@ class UpdateChecker {
     } catch (_) {
       return 0;
     }
+  }
+
+  static bool _hasPlatformAsset(List<dynamic> assets) {
+    for (final asset in assets) {
+      final name = (asset as Map<String, dynamic>)['name'] as String? ?? '';
+      final lower = name.toLowerCase();
+      if (Platform.isAndroid && lower.endsWith('.apk')) return true;
+      if (Platform.isIOS && lower.endsWith('.ipa')) return true;
+      if (Platform.isMacOS &&
+          (lower.endsWith('.dmg') ||
+              lower.endsWith('.pkg') ||
+              lower.endsWith('.zip'))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static Future<UpdateInfo> check({Dio? dio, String? currentVersion}) async {
@@ -53,9 +71,14 @@ class UpdateChecker {
           ? tagName.substring(1)
           : tagName;
       final body = data['body'] as String? ?? '';
+      final assets = data['assets'] as List<dynamic>? ?? [];
 
       final comparison = compareVersions(ver, latestVersion);
       if (comparison != 1) {
+        return UpdateInfo.noUpdate(ver);
+      }
+
+      if (!_hasPlatformAsset(assets)) {
         return UpdateInfo.noUpdate(ver);
       }
 
