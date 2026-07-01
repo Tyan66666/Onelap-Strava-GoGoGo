@@ -1,10 +1,11 @@
 import 'dart:io';
 
+import 'intervals_icu_fit_uploader.dart';
 import 'settings_service.dart';
 import 'strava_fit_uploader.dart';
 import 'xingzhe_fit_uploader.dart';
 
-enum FitUploadPlatform { strava, xingzhe }
+enum FitUploadPlatform { strava, xingzhe, intervalsIcu }
 
 enum FitUploadPlatformStatus { success, alreadyUploaded, failure }
 
@@ -89,6 +90,7 @@ class FitUploadCoordinator {
   FitUploadCoordinator({
     FitPlatformUploader? stravaUploader,
     FitPlatformUploader? xingzheUploader,
+    FitPlatformUploader? intervalsIcuUploader,
     StravaFitUploadClientFactory? stravaClientFactory,
     XingzheSessionClientFactory? xingzheSessionClientFactory,
     XingzheLoginClientFactory? xingzheLoginClientFactory,
@@ -100,10 +102,13 @@ class FitUploadCoordinator {
            XingzheFitUploader(
              createClientWithSession: xingzheSessionClientFactory,
              loginClient: xingzheLoginClientFactory,
-           );
+           ),
+       _intervalsIcuUploader =
+           intervalsIcuUploader ?? IntervalsIcuFitUploader();
 
   final FitPlatformUploader _stravaUploader;
   final FitPlatformUploader _xingzheUploader;
+  final FitPlatformUploader _intervalsIcuUploader;
 
   FitUploadPlan resolveUploadPlan(Map<String, String> settings) {
     final List<FitUploadPlatform> targets = <FitUploadPlatform>[];
@@ -114,6 +119,10 @@ class FitUploadCoordinator {
 
     if (_isEnabled(settings, SettingsService.keyUploadToXingzhe)) {
       targets.add(FitUploadPlatform.xingzhe);
+    }
+
+    if (_isEnabled(settings, SettingsService.keyUploadToIntervalsIcu)) {
+      targets.add(FitUploadPlatform.intervalsIcu);
     }
 
     return FitUploadPlan(
@@ -180,6 +189,7 @@ class FitUploadCoordinator {
     final FitPlatformUploader uploader = switch (platform) {
       FitUploadPlatform.strava => _stravaUploader,
       FitUploadPlatform.xingzhe => _xingzheUploader,
+      FitUploadPlatform.intervalsIcu => _intervalsIcuUploader,
     };
 
     try {
@@ -222,6 +232,12 @@ class FitUploadCoordinator {
               !_hasValue(settings, SettingsService.keyXingzhePassword))) {
         return false;
       }
+
+      if (platform == FitUploadPlatform.intervalsIcu &&
+          (!_hasValue(settings, SettingsService.keyIntervalsIcuAthleteId) ||
+              !_hasValue(settings, SettingsService.keyIntervalsIcuApiKey))) {
+        return false;
+      }
     }
 
     return true;
@@ -236,16 +252,35 @@ class FitUploadCoordinator {
   }
 
   String _targetLabel(List<FitUploadPlatform> targets) {
+    if (targets.length == 3) {
+      return 'Strava、行者 和 Intervals.icu';
+    }
+
     if (targets.length == 2) {
-      return 'Strava 和行者';
+      if (targets.contains(FitUploadPlatform.strava) &&
+          targets.contains(FitUploadPlatform.xingzhe)) {
+        return 'Strava 和行者';
+      }
+      if (targets.contains(FitUploadPlatform.strava) &&
+          targets.contains(FitUploadPlatform.intervalsIcu)) {
+        return 'Strava 和 Intervals.icu';
+      }
+      if (targets.contains(FitUploadPlatform.xingzhe) &&
+          targets.contains(FitUploadPlatform.intervalsIcu)) {
+        return '行者 和 Intervals.icu';
+      }
     }
 
-    if (targets.contains(FitUploadPlatform.strava)) {
-      return 'Strava';
-    }
-
-    if (targets.contains(FitUploadPlatform.xingzhe)) {
-      return '行者';
+    if (targets.length == 1) {
+      if (targets.contains(FitUploadPlatform.strava)) {
+        return 'Strava';
+      }
+      if (targets.contains(FitUploadPlatform.xingzhe)) {
+        return '行者';
+      }
+      if (targets.contains(FitUploadPlatform.intervalsIcu)) {
+        return 'Intervals.icu';
+      }
     }
 
     return '';

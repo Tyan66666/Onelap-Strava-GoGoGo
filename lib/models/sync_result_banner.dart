@@ -24,6 +24,12 @@ class SyncResultBanner {
   final int stravaDeduped;
   final List<FailedActivitySummary> stravaFailures;
 
+  // Intervals.icu
+  final int intervalsIcuSuccess;
+  final int intervalsIcuFailed;
+  final int intervalsIcuDeduped;
+  final List<FailedActivitySummary> intervalsIcuFailures;
+
   const SyncResultBanner({
     required this.id,
     required this.syncedAt,
@@ -40,6 +46,10 @@ class SyncResultBanner {
     required this.stravaFailed,
     required this.stravaDeduped,
     required this.stravaFailures,
+    required this.intervalsIcuSuccess,
+    required this.intervalsIcuFailed,
+    required this.intervalsIcuDeduped,
+    required this.intervalsIcuFailures,
   });
 
   factory SyncResultBanner.fromSyncSummary(SyncSummary s) {
@@ -60,6 +70,10 @@ class SyncResultBanner {
       stravaFailed: s.stravaFailed,
       stravaDeduped: s.stravaDeduped,
       stravaFailures: s.stravaFailures,
+      intervalsIcuSuccess: s.intervalsIcuSuccess,
+      intervalsIcuFailed: s.intervalsIcuFailed,
+      intervalsIcuDeduped: s.intervalsIcuDeduped,
+      intervalsIcuFailures: s.intervalsIcuFailures,
     );
   }
 
@@ -79,6 +93,12 @@ class SyncResultBanner {
     'stravaFailed': stravaFailed,
     'stravaDeduped': stravaDeduped,
     'stravaFailures': stravaFailures.map((f) => f.toJson()).toList(),
+    'intervalsIcuSuccess': intervalsIcuSuccess,
+    'intervalsIcuFailed': intervalsIcuFailed,
+    'intervalsIcuDeduped': intervalsIcuDeduped,
+    'intervalsIcuFailures': intervalsIcuFailures
+        .map((f) => f.toJson())
+        .toList(),
   };
 
   factory SyncResultBanner.fromJson(Map<String, dynamic> json) {
@@ -112,11 +132,22 @@ class SyncResultBanner {
               )
               .toList() ??
           [],
+      intervalsIcuSuccess: json['intervalsIcuSuccess'] as int? ?? 0,
+      intervalsIcuFailed: json['intervalsIcuFailed'] as int? ?? 0,
+      intervalsIcuDeduped: json['intervalsIcuDeduped'] as int? ?? 0,
+      intervalsIcuFailures:
+          (json['intervalsIcuFailures'] as List?)
+              ?.map(
+                (e) =>
+                    FailedActivitySummary.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
     );
   }
 
   /// 概览行文案
-  String get summaryLine => '共获取$fetched条，$deduped条已通过，$pending条需同步';
+  String get summaryLine => '共获取$fetched条，$deduped条已跳过，$pending条需同步';
 
   /// 简要时间标签（用于列表显示）
   String get timeLabel {
@@ -139,6 +170,9 @@ class SyncResultBanner {
       ...stravaFailures.map(
         (f) => 'Strava失败: ${f.displayText} ${f.error ?? ''}',
       ),
+      ...intervalsIcuFailures.map(
+        (f) => 'Intervals.icu失败: ${f.displayText} ${f.error ?? ''}',
+      ),
     ],
     xingzheSuccess: xingzheSuccess,
     xingzheFailed: xingzheFailed,
@@ -148,5 +182,9 @@ class SyncResultBanner {
     stravaFailed: stravaFailed,
     stravaDeduped: stravaDeduped,
     stravaFailures: stravaFailures,
+    intervalsIcuSuccess: intervalsIcuSuccess,
+    intervalsIcuFailed: intervalsIcuFailed,
+    intervalsIcuDeduped: intervalsIcuDeduped,
+    intervalsIcuFailures: intervalsIcuFailures,
   );
 }

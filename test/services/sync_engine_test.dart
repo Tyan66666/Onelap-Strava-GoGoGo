@@ -8,6 +8,7 @@ import 'package:onelap_strava_sync/models/sync_record.dart';
 import 'package:onelap_strava_sync/models/sync_result_banner.dart';
 import 'package:onelap_strava_sync/models/sync_summary.dart';
 import 'package:onelap_strava_sync/services/fit_coordinate_rewrite_service.dart';
+import 'package:onelap_strava_sync/services/intervals_icu_client.dart';
 import 'package:onelap_strava_sync/services/onelap_client.dart';
 import 'package:onelap_strava_sync/services/state_store.dart';
 import 'package:onelap_strava_sync/services/strava_client.dart';
@@ -179,6 +180,40 @@ class _FakeFitCoordinateRewriteService extends FitCoordinateRewriteService {
       throw error!;
     }
     return rewrittenFile!;
+  }
+}
+
+class _FakeIntervalsIcuClient extends IntervalsIcuClient {
+  _FakeIntervalsIcuClient() : super(athleteId: 'athlete-id', apiKey: 'api-key');
+
+  File? uploadedFile;
+  int uploadCalls = 0;
+
+  @override
+  Future<int> uploadFit(File file, {int retries = 3}) async {
+    uploadedFile = file;
+    uploadCalls++;
+    return 123;
+  }
+}
+
+class _FailingIntervalsIcuClient extends IntervalsIcuClient {
+  _FailingIntervalsIcuClient()
+    : super(athleteId: 'athlete-id', apiKey: 'api-key');
+
+  @override
+  Future<int> uploadFit(File file, {int retries = 3}) async {
+    throw IntervalsIcuPermanentError('API Key 无效');
+  }
+}
+
+class _IdempotentIntervalsIcuClient extends IntervalsIcuClient {
+  _IdempotentIntervalsIcuClient()
+    : super(athleteId: 'athlete-id', apiKey: 'api-key');
+
+  @override
+  Future<int> uploadFit(File file, {int retries = 3}) async {
+    throw IntervalsIcuPermanentError('duplicate of activity 98765');
   }
 }
 
@@ -793,6 +828,232 @@ void main() {
       expect(summary.stravaSuccess, 1);
       expect(summary.stravaDeduped, 0);
       expect(stateStore.clearedPlatforms, contains('strava'));
+    });
+
+    test('uploads to Intervals.icu when enabled', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-intervals-icu-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final intervalsIcuClient = _FakeIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        intervalsIcuClient: intervalsIcuClient,
+        stateStore: _FakeStateStore(),
+        uploadToIntervalsIcu: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(intervalsIcuClient.uploadCalls, 1);
+      expect(intervalsIcuClient.uploadedFile, isNotNull);
+      expect(summary.intervalsIcuSuccess, 1);
+      expect(summary.intervalsIcuFailed, 0);
+      expect(summary.intervalsIcuDeduped, 0);
+    });
+
+    test('Intervals.icu failure does not block Strava upload', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-intervals-icu-fail-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final stravaClient = _FakeStravaClient();
+      final intervalsIcuClient = _FailingIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: stravaClient,
+        intervalsIcuClient: intervalsIcuClient,
+        stateStore: _FakeStateStore(),
+        uploadToStrava: true,
+        uploadToIntervalsIcu: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      // Strava should succeed even though Intervals.icu failed
+      expect(summary.stravaSuccess, 1);
+      expect(summary.intervalsIcuFailed, 1);
+      expect(summary.success, 1); // partial success counts as success
+      expect(summary.failed, 0); // only count as failed if ALL platforms failed
+    });
+
+    test('skips Intervals.icu upload when already synced', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-intervals-icu-dedup-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final stateStore = _FakeStateStore()
+        ..uploadedPlatforms['intervals_icu'] = true;
+
+      final intervalsIcuClient = _FakeIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        intervalsIcuClient: intervalsIcuClient,
+        stateStore: stateStore,
+        uploadToStrava: true,
+        uploadToIntervalsIcu: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(intervalsIcuClient.uploadCalls, 0);
+      expect(summary.intervalsIcuDeduped, 1);
+      expect(summary.intervalsIcuSuccess, 0);
+    });
+
+    test('three platforms run in parallel', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-three-platforms-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes([1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      int concurrent = 0;
+      int maxConcurrent = 0;
+
+      final strava = _TrackingStravaClient(
+        onStart: () {
+          concurrent++;
+          if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+        },
+        onDone: () => concurrent--,
+      );
+      final xingzhe = _TrackingXingzheClient(
+        onStart: () {
+          concurrent++;
+          if (concurrent > maxConcurrent) maxConcurrent = concurrent;
+        },
+        onDone: () => concurrent--,
+      );
+      final intervalsIcu = _FakeIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: [
+            _activity(),
+            _activity(sourceFilename: 'activity2.fit'),
+          ],
+          downloadedFile: file,
+        ),
+        stravaClient: strava,
+        xingzheClient: xingzhe,
+        intervalsIcuClient: intervalsIcu,
+        stateStore: _FakeStateStore(),
+        uploadToStrava: true,
+        uploadToXingzhe: true,
+        uploadToIntervalsIcu: true,
+      );
+
+      await engine.runOnce();
+
+      expect(
+        maxConcurrent,
+        greaterThanOrEqualTo(2),
+        reason: 'All platforms should upload simultaneously',
+      );
+      expect(intervalsIcu.uploadCalls, 2);
+    });
+
+    test('Intervals.icu rewrite error produces 坐标转换失败 failure', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-intervals-rewrite-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final intervalsIcuClient = _FakeIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        intervalsIcuClient: intervalsIcuClient,
+        stateStore: _FakeStateStore(),
+        gcjCorrectionEnabled: true,
+        rewriteService: _FakeFitCoordinateRewriteService(
+          error: Exception('bad coordinate'),
+        ),
+        uploadToIntervalsIcu: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(summary.intervalsIcuFailed, 1);
+      expect(summary.intervalsIcuSuccess, 0);
+      expect(intervalsIcuClient.uploadCalls, 0);
+    });
+
+    test('Intervals.icu idempotent success from duplicate error', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-intervals-idempotent-',
+      );
+      final file = File('${tempDir.path}/activity.fit');
+      await file.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final intervalsIcuClient = _IdempotentIntervalsIcuClient();
+
+      final engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: file,
+        ),
+        stravaClient: _FakeStravaClient(),
+        intervalsIcuClient: intervalsIcuClient,
+        stateStore: _FakeStateStore(),
+        uploadToIntervalsIcu: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(summary.intervalsIcuSuccess, 1);
+      expect(summary.intervalsIcuFailed, 0);
+      expect(summary.intervalsIcuDeduped, 0);
     });
   });
 }

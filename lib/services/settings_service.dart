@@ -56,6 +56,9 @@ class SettingsService {
   static const keyGcjCorrectionEnabled = 'GCJ_CORRECTION_ENABLED';
   static const keyUploadToStrava = 'UPLOAD_TO_STRAVA';
   static const keyUploadToXingzhe = 'UPLOAD_TO_XINGZHE';
+  static const keyIntervalsIcuAthleteId = 'INTERVALS_ICU_ATHLETE_ID';
+  static const keyIntervalsIcuApiKey = 'INTERVALS_ICU_API_KEY';
+  static const keyUploadToIntervalsIcu = 'UPLOAD_TO_INTERVALS_ICU';
 
   static const allKeys = [
     keyOneLapUsername,
@@ -74,6 +77,9 @@ class SettingsService {
     keyGcjCorrectionEnabled,
     keyUploadToStrava,
     keyUploadToXingzhe,
+    keyIntervalsIcuAthleteId,
+    keyIntervalsIcuApiKey,
+    keyUploadToIntervalsIcu,
   ];
 
   Future<Map<String, String>> loadSettings() async {

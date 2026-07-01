@@ -50,5 +50,44 @@ void main() {
 
       expect(find.text('请先在设置中填写 Strava 凭证'), findsOneWidget);
     });
+
+    testWidgets(
+      'blocks sync when Intervals.icu is enabled but credentials are empty',
+      (WidgetTester tester) async {
+        FlutterSecureStorage.setMockInitialValues(<String, String>{
+          SettingsService.keyOneLapUsername: 'user@test.com',
+          SettingsService.keyOneLapPassword: 'pass',
+          SettingsService.keyUploadToIntervalsIcu: 'true',
+        });
+
+        await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('立即同步'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('请先在设置中填写 Intervals.icu 凭证'), findsOneWidget);
+      },
+    );
+
+    testWidgets('blocks sync when no platform is selected', (
+      WidgetTester tester,
+    ) async {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{
+        SettingsService.keyOneLapUsername: 'user@test.com',
+        SettingsService.keyOneLapPassword: 'pass',
+        SettingsService.keyUploadToStrava: 'false',
+        SettingsService.keyUploadToXingzhe: 'false',
+        SettingsService.keyUploadToIntervalsIcu: 'false',
+      });
+
+      await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('立即同步'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('请至少选择一个上传平台'), findsOneWidget);
+    });
   });
 }

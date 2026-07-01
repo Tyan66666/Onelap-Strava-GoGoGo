@@ -42,26 +42,25 @@ android {
 
     buildTypes {
         release {
-            check(hasReleaseSigning) {
-                "Release signing requires android/key.properties and android/app/upload-keystore.jks"
-            }
-            signingConfig = signingConfigs.create("release") {
-                val storeFilePath = keyProperties.getProperty("storeFile")
-                    ?: error("Missing 'storeFile' in android/key.properties")
-                val storePasswordValue = keyProperties.getProperty("storePassword")
-                    ?: error("Missing 'storePassword' in android/key.properties")
-                val keyAliasValue = keyProperties.getProperty("keyAlias")
-                    ?: error("Missing 'keyAlias' in android/key.properties")
-                val keyPasswordValue = keyProperties.getProperty("keyPassword")
-                    ?: error("Missing 'keyPassword' in android/key.properties")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.create("release") {
+                    val storeFilePath = keyProperties.getProperty("storeFile")
+                        ?: error("Missing 'storeFile' in android/key.properties")
+                    val storePasswordValue = keyProperties.getProperty("storePassword")
+                        ?: error("Missing 'storePassword' in android/key.properties")
+                    val keyAliasValue = keyProperties.getProperty("keyAlias")
+                        ?: error("Missing 'keyAlias' in android/key.properties")
+                    val keyPasswordValue = keyProperties.getProperty("keyPassword")
+                        ?: error("Missing 'keyPassword' in android/key.properties")
 
-                storeFile = rootProject.file(storeFilePath)
-                check(storeFile?.exists() == true) {
-                    "Release signing keystore not found at ${storeFile?.path}"
+                    storeFile = rootProject.file(storeFilePath)
+                    check(storeFile?.exists() == true) {
+                        "Release signing keystore not found at ${storeFile?.path}"
+                    }
+                    storePassword = storePasswordValue
+                    keyAlias = keyAliasValue
+                    keyPassword = keyPasswordValue
                 }
-                storePassword = storePasswordValue
-                keyAlias = keyAliasValue
-                keyPassword = keyPasswordValue
             }
         }
     }

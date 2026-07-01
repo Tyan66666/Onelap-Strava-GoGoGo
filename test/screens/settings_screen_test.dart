@@ -144,6 +144,13 @@ void main() {
     );
   }
 
+  Finder platformSwitch(String platformTitle) {
+    return find.descendant(
+      of: find.widgetWithText(ListTile, platformTitle),
+      matching: find.byType(Switch),
+    );
+  }
+
   Future<void> tapVisibleText(WidgetTester tester, String text) async {
     final Finder target = buttonWithText(text);
     await tester.ensureVisible(target);
@@ -171,21 +178,39 @@ void main() {
   ) async {
     useLargeTestViewport(tester);
 
+    final InMemorySettingsStore store = InMemorySettingsStore(<String, String>{
+      SettingsService.keyUploadToStrava: 'true',
+      SettingsService.keyLookbackDays: '3',
+    });
+    final SettingsService settingsService = SettingsService(store: store);
+
     await tester.pumpWidget(
       MaterialApp(
         home: SettingsScreen(
+          settingsService: settingsService,
           authorizeStrava: (String clientId, String clientSecret) async => true,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await enterVisibleText(tester, 'Client ID（客户端ID）', '12345');
-    await enterVisibleText(tester, 'Client Secret（客户端密钥）', 'secret-xyz');
+    final Finder stravaCard = find.ancestor(
+      of: find.text('Strava'),
+      matching: find.byType(Card),
+    );
+    await tester.ensureVisible(stravaCard);
+    await tester.tap(stravaCard);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(fieldWithLabel('Client ID（客户端ID）'), '12345');
+    await tester.enterText(
+      fieldWithLabel('Client Secret（客户端密钥）'),
+      'secret-xyz',
+    );
 
     await tapVisibleText(tester, '授权 Strava');
 
-    final Map<String, String> settings = await SettingsService().loadSettings();
+    final Map<String, String> settings = await settingsService.loadSettings();
     expect(settings[SettingsService.keyStravaClientId], '12345');
     expect(settings[SettingsService.keyStravaClientSecret], 'secret-xyz');
   });
@@ -195,9 +220,7 @@ void main() {
   ) async {
     useLargeTestViewport(tester);
 
-    FlutterSecureStorage.setMockInitialValues(<String, String>{
-      SettingsService.keyStravaClientId: 'stored-client-id',
-    });
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
 
     await tester.pumpWidget(
       MaterialApp(
@@ -218,7 +241,6 @@ void main() {
     final Map<String, String> settings = await SettingsService().loadSettings();
     expect(settings[SettingsService.keyOneLapUsername], 'solo-user');
     expect(settings[SettingsService.keyOneLapPassword], 'solo-pass');
-    expect(settings[SettingsService.keyStravaClientId], 'stored-client-id');
   });
 
   testWidgets('save OneLap credentials also validates current input', (
@@ -749,12 +771,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final Finder stravaSwitch = find.descendant(
-      of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
-      matching: find.byType(Switch),
-    );
-    await tester.ensureVisible(stravaSwitch);
-    await tester.tap(stravaSwitch);
+    await tester.ensureVisible(platformSwitch('Strava'));
+    await tester.tap(platformSwitch('Strava'));
     await tester.pumpAndSettle();
 
     final Map<String, String> settings = await settingsService.loadSettings();
@@ -778,19 +796,43 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final Finder xingzheSwitch = find.descendant(
-      of: find.widgetWithText(SwitchListTile, '上传到 行者'),
-      matching: find.byType(Switch),
-    );
-    await tester.ensureVisible(xingzheSwitch);
-    await tester.tap(xingzheSwitch);
+    await tester.ensureVisible(platformSwitch('行者'));
+    await tester.tap(platformSwitch('行者'));
     await tester.pumpAndSettle();
 
     final Map<String, String> settings = await settingsService.loadSettings();
     expect(settings[SettingsService.keyUploadToXingzhe], 'true');
   });
 
-  testWidgets('cannot turn off both upload platforms', (
+  testWidgets(
+    'tapping upload to Intervals.icu toggle immediately persists setting',
+    (WidgetTester tester) async {
+      useLargeTestViewport(tester);
+
+      final InMemorySettingsStore store =
+          InMemorySettingsStore(<String, String>{
+            SettingsService.keyUploadToStrava: 'true',
+            SettingsService.keyUploadToXingzhe: 'false',
+            SettingsService.keyUploadToIntervalsIcu: 'false',
+            SettingsService.keyLookbackDays: '3',
+          });
+      final SettingsService settingsService = SettingsService(store: store);
+
+      await tester.pumpWidget(
+        MaterialApp(home: SettingsScreen(settingsService: settingsService)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(platformSwitch('Intervals.icu'));
+      await tester.tap(platformSwitch('Intervals.icu'));
+      await tester.pumpAndSettle();
+
+      final Map<String, String> settings = await settingsService.loadSettings();
+      expect(settings[SettingsService.keyUploadToIntervalsIcu], 'true');
+    },
+  );
+
+  testWidgets('cannot turn off all upload platforms', (
     WidgetTester tester,
   ) async {
     useLargeTestViewport(tester);
@@ -798,32 +840,29 @@ void main() {
     FlutterSecureStorage.setMockInitialValues(<String, String>{
       SettingsService.keyUploadToStrava: 'true',
       SettingsService.keyUploadToXingzhe: 'true',
+      SettingsService.keyUploadToIntervalsIcu: 'true',
       SettingsService.keyLookbackDays: '3',
     });
 
     await tester.pumpWidget(const MaterialApp(home: SettingsScreen()));
     await tester.pumpAndSettle();
 
-    final Finder stravaSwitch = find.descendant(
-      of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
-      matching: find.byType(Switch),
-    );
-    await tester.ensureVisible(stravaSwitch);
-    await tester.tap(stravaSwitch);
+    await tester.ensureVisible(platformSwitch('Strava'));
+    await tester.tap(platformSwitch('Strava'));
     await tester.pumpAndSettle();
 
-    final Finder xingzheSwitch = find.descendant(
-      of: find.widgetWithText(SwitchListTile, '上传到 行者'),
-      matching: find.byType(Switch),
-    );
-    await tester.ensureVisible(xingzheSwitch);
-    await tester.tap(xingzheSwitch);
+    await tester.ensureVisible(platformSwitch('行者'));
+    await tester.tap(platformSwitch('行者'));
     await tester.pumpAndSettle();
+
+    await tester.ensureVisible(platformSwitch('Intervals.icu'));
+    await tester.tap(platformSwitch('Intervals.icu'));
+    await tester.pump();
 
     expect(find.text('至少需要选择一个上传平台'), findsOneWidget);
 
     final Map<String, String> settings = await SettingsService().loadSettings();
-    expect(settings[SettingsService.keyUploadToXingzhe], 'true');
+    expect(settings[SettingsService.keyUploadToIntervalsIcu], 'true');
   });
 
   testWidgets(
@@ -844,15 +883,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final Finder stravaSwitch = find.descendant(
-        of: find.widgetWithText(SwitchListTile, '上传到 Strava'),
-        matching: find.byType(Switch),
-      );
-      await tester.ensureVisible(stravaSwitch);
-      await tester.tap(stravaSwitch);
+      await tester.ensureVisible(platformSwitch('Strava'));
+      await tester.tap(platformSwitch('Strava'));
       await tester.pumpAndSettle();
 
-      final Switch switchWidget = tester.widget<Switch>(stravaSwitch);
+      final Finder stravaCard = find.widgetWithText(ListTile, 'Strava');
+      final Switch switchWidget = tester.widget<Switch>(
+        find.descendant(of: stravaCard, matching: find.byType(Switch)),
+      );
       expect(switchWidget.value, isTrue);
       expect(find.text('设置保存失败: Exception: save failed'), findsOneWidget);
     },

@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../services/onelap_client.dart';
 import '../services/settings_service.dart';
-import '../services/xingzhe_client.dart';
-import 'strava_auth_screen.dart';
-import 'strava_web_login_screen.dart';
+import 'intervals_icu_settings_screen.dart';
+import 'strava_settings_screen.dart';
+import 'xingzhe_settings_screen.dart';
 
-typedef AuthorizeStravaCallback =
-    Future<bool?> Function(String clientId, String clientSecret);
 typedef ValidateOneLapLoginCallback =
     Future<void> Function(String username, String password);
 
@@ -33,51 +30,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _controllers = <String, TextEditingController>{};
   bool _loading = true;
   bool _savingOneLapCredentials = false;
-  bool _savingXingzheCredentials = false;
   bool _gcjCorrectionEnabled = false;
   bool _savingGcjCorrectionEnabled = false;
   bool? _pendingGcjCorrectionEnabled;
   bool _confirmedGcjCorrectionEnabled = false;
   bool _uploadToStrava = true;
   bool _uploadToXingzhe = false;
+  bool _uploadToIntervalsIcu = false;
   bool _savingUploadToStrava = false;
   bool _savingUploadToXingzhe = false;
+  bool _savingUploadToIntervalsIcu = false;
   bool? _pendingUploadToStrava;
   bool? _pendingUploadToXingzhe;
+  bool? _pendingUploadToIntervalsIcu;
   bool _confirmedUploadToStrava = true;
   bool _confirmedUploadToXingzhe = false;
-  String _stravaUploadMode = 'api';
+  bool _confirmedUploadToIntervalsIcu = false;
 
   static const _controllerKeys = [
     SettingsService.keyOneLapUsername,
     SettingsService.keyOneLapPassword,
-    SettingsService.keyStravaClientId,
-    SettingsService.keyStravaClientSecret,
-    SettingsService.keyStravaRefreshToken,
-    SettingsService.keyStravaAccessToken,
-    SettingsService.keyStravaExpiresAt,
-    SettingsService.keyStravaWebCookies,
-    SettingsService.keyXingzheUsername,
-    SettingsService.keyXingzhePassword,
     SettingsService.keyLookbackDays,
   ];
 
-  static const _obscured = {
-    SettingsService.keyOneLapPassword,
-    SettingsService.keyStravaClientSecret,
-    SettingsService.keyXingzhePassword,
-  };
+  static const _obscured = {SettingsService.keyOneLapPassword};
 
   static const _labels = {
     SettingsService.keyOneLapUsername: 'OneLap 用户名',
     SettingsService.keyOneLapPassword: 'OneLap 密码',
-    SettingsService.keyStravaClientId: 'Client ID（客户端ID）',
-    SettingsService.keyStravaClientSecret: 'Client Secret（客户端密钥）',
-    SettingsService.keyStravaAccessToken: 'Access Token（访问令牌）',
-    SettingsService.keyStravaRefreshToken: 'Refresh Token（刷新令牌）',
-    SettingsService.keyStravaExpiresAt: 'Expires At（过期时间，Unix 时间戳）',
-    SettingsService.keyXingzheUsername: '行者 用户名',
-    SettingsService.keyXingzhePassword: '行者 密码',
     SettingsService.keyLookbackDays: '同步最近几天（默认 3）',
   };
 
@@ -107,11 +87,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _confirmedGcjCorrectionEnabled = _gcjCorrectionEnabled;
       _uploadToStrava = values[SettingsService.keyUploadToStrava] != 'false';
       _uploadToXingzhe = values[SettingsService.keyUploadToXingzhe] == 'true';
+      _uploadToIntervalsIcu =
+          values[SettingsService.keyUploadToIntervalsIcu] == 'true';
       _confirmedUploadToStrava = _uploadToStrava;
       _confirmedUploadToXingzhe = _uploadToXingzhe;
-      _stravaUploadMode = values[SettingsService.keyStravaUploadMode] == 'web'
-          ? 'web'
-          : 'api';
+      _confirmedUploadToIntervalsIcu = _uploadToIntervalsIcu;
       _loading = false;
     });
   }
@@ -153,46 +133,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('OneLap 账号已保存')));
-    }
-  }
-
-  Future<void> _saveXingzheCredentials({bool validateAfterSave = false}) async {
-    _dismissKeyboard();
-
-    final Map<String, String> values = {
-      SettingsService.keyXingzheUsername:
-          _controllers[SettingsService.keyXingzheUsername]!.text.trim(),
-      SettingsService.keyXingzhePassword:
-          _controllers[SettingsService.keyXingzhePassword]!.text.trim(),
-    };
-    if (validateAfterSave) {
-      if (mounted) {
-        setState(() => _savingXingzheCredentials = true);
-      }
-      try {
-        final bool success = await _validateXingzheLogin(
-          username: values[SettingsService.keyXingzheUsername]!,
-          password: values[SettingsService.keyXingzhePassword]!,
-          persistValues: values,
-          showSuccessMessage: false,
-        );
-        if (success && mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('行者账号已保存')));
-        }
-      } finally {
-        if (mounted) {
-          setState(() => _savingXingzheCredentials = false);
-        }
-      }
-      return;
-    }
-    await _settingsService.saveSettings(values);
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('行者账号已保存')));
     }
   }
 
@@ -256,63 +196,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('OneLap 登录验证成功')));
-    }
-    return true;
-  }
-
-  Future<bool> _validateXingzheLogin({
-    String? username,
-    String? password,
-    Map<String, String>? persistValues,
-    bool showSuccessMessage = true,
-  }) async {
-    final effectiveUsername =
-        username ??
-        _controllers[SettingsService.keyXingzheUsername]!.text.trim();
-    final effectivePassword =
-        password ??
-        _controllers[SettingsService.keyXingzhePassword]!.text.trim();
-
-    if (effectiveUsername.isEmpty || effectivePassword.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('请先填写行者用户名和密码')));
-      }
-      return false;
-    }
-
-    try {
-      await XingzheClient.login(
-        username: effectiveUsername,
-        password: effectivePassword,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('行者登录验证失败: $e')));
-      }
-      return false;
-    }
-
-    if (persistValues != null) {
-      try {
-        await _settingsService.saveSettings(persistValues);
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
-        }
-        return false;
-      }
-    }
-
-    if (mounted && showSuccessMessage) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('行者登录验证成功')));
     }
     return true;
   }
@@ -392,8 +275,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  bool _otherPlatformsEnabled({
+    required bool strava,
+    required bool xingzhe,
+    required bool intervalsIcu,
+  }) {
+    return strava || xingzhe || intervalsIcu;
+  }
+
   Future<void> _toggleUploadToStrava(bool value) async {
-    if (!value && !_uploadToXingzhe) {
+    if (!value &&
+        !_otherPlatformsEnabled(
+          strava: false,
+          xingzhe: _uploadToXingzhe,
+          intervalsIcu: _uploadToIntervalsIcu,
+        )) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -443,7 +339,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleUploadToXingzhe(bool value) async {
-    if (!value && !_uploadToStrava) {
+    if (!value &&
+        !_otherPlatformsEnabled(
+          strava: _uploadToStrava,
+          xingzhe: false,
+          intervalsIcu: _uploadToIntervalsIcu,
+        )) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -492,6 +393,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _toggleUploadToIntervalsIcu(bool value) async {
+    if (!value &&
+        !_otherPlatformsEnabled(
+          strava: _uploadToStrava,
+          xingzhe: _uploadToXingzhe,
+          intervalsIcu: false,
+        )) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('至少需要选择一个上传平台')));
+      }
+      return;
+    }
+
+    setState(() => _uploadToIntervalsIcu = value);
+
+    if (_savingUploadToIntervalsIcu) {
+      _pendingUploadToIntervalsIcu = value;
+      return;
+    }
+
+    _savingUploadToIntervalsIcu = true;
+    bool valueToPersist = value;
+
+    while (true) {
+      _pendingUploadToIntervalsIcu = null;
+
+      try {
+        await _settingsService.saveSettings({
+          SettingsService.keyUploadToIntervalsIcu: valueToPersist.toString(),
+        });
+        _confirmedUploadToIntervalsIcu = valueToPersist;
+      } catch (e) {
+        _savingUploadToIntervalsIcu = false;
+        _pendingUploadToIntervalsIcu = null;
+        if (mounted) {
+          setState(
+            () => _uploadToIntervalsIcu = _confirmedUploadToIntervalsIcu,
+          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+        }
+        return;
+      }
+
+      final bool? pendingValue = _pendingUploadToIntervalsIcu;
+      if (pendingValue == null || pendingValue == valueToPersist) {
+        _savingUploadToIntervalsIcu = false;
+        return;
+      }
+
+      valueToPersist = pendingValue;
+    }
+  }
+
   void _dismissKeyboard() {
     FocusScope.of(context).unfocus();
   }
@@ -512,66 +470,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return lookbackDays;
   }
 
-  Future<void> _authorizeStrava() async {
-    final clientId = _controllers[SettingsService.keyStravaClientId]!.text
-        .trim();
-    final clientSecret = _controllers[SettingsService.keyStravaClientSecret]!
-        .text
-        .trim();
-
-    if (clientId.isEmpty || clientSecret.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('请先填写 Strava Client ID 和 Client Secret'),
-          ),
-        );
-      }
-      return;
-    }
-
-    try {
-      await _settingsService.saveSettings({
-        SettingsService.keyStravaClientId: clientId,
-        SettingsService.keyStravaClientSecret: clientSecret,
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
-      }
-      return;
-    }
-
-    final navigator = Navigator.of(context);
-
-    final result =
-        await (widget.authorizeStrava?.call(clientId, clientSecret) ??
-            navigator.push<bool>(
-              MaterialPageRoute(
-                builder: (_) => StravaAuthScreen(
-                  clientId: clientId,
-                  clientSecret: clientSecret,
-                ),
-              ),
-            ));
-
-    if (!mounted) return;
-
-    if (result == true) {
-      await _load();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Strava 授权成功')));
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('授权取消或失败')));
-    }
-  }
-
   @override
   void dispose() {
     for (final c in _controllers.values) {
@@ -580,54 +478,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  void _showStravaApiInfo() {
-    const stravaApiUrl = 'https://www.strava.com/settings/api';
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('关于 Strava API 凭证'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Strava 对个人开发者的 API 访问有严格限制，每个应用每 15 分钟最多 200 次请求、每天 2000 次。\n\n'
-                '为了不让所有用户共享同一个配额，本应用需要你使用自己的 Strava API 应用凭证。\n\n'
-                '注册步骤：',
-                style: TextStyle(fontSize: 14, height: 1.5),
-              ),
-              const SizedBox(height: 4),
-              InkWell(
-                onTap: () => launchUrl(
-                  Uri.parse(stravaApiUrl),
-                  mode: LaunchMode.externalApplication,
-                ),
-                child: const Text(
-                  '1. 登录 https://www.strava.com/settings/api',
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.5,
-                    color: Colors.blue,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-              const Text(
-                '2. 创建一个新应用，"Authorization Callback Domain" 填写 localhost\n'
-                '3. 创建后复制 Client ID（客户端ID）和 Client Secret（客户端密钥）填入此处\n'
-                '4. 点击"授权 Strava"按钮完成授权，Access Token（访问令牌）、Refresh Token（刷新令牌）和 Expires At 将自动填入',
-                style: TextStyle(fontSize: 14, height: 1.5),
-              ),
-            ],
-          ),
+  Widget _buildPlatformCard({
+    required String title,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        title: Text(title),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(value: value, onChanged: onChanged),
+            const Icon(Icons.chevron_right),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('知道了'),
-          ),
-        ],
+        onTap: onTap,
       ),
     );
   }
@@ -722,190 +590,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           const Text(
-            '上传设置',
+            '同步平台',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('上传到 Strava'),
+          _buildPlatformCard(
+            title: 'Strava',
             value: _uploadToStrava,
             onChanged: _toggleUploadToStrava,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => StravaSettingsScreen(
+                    settingsService: _settingsService,
+                    authorizeStrava: widget.authorizeStrava,
+                  ),
+                ),
+              );
+            },
           ),
-          if (_uploadToStrava) ...[
-            const SizedBox(height: 8),
-            const Text('上传方式', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 4),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'api', label: Text('API')),
-                ButtonSegment(value: 'web', label: Text('网页')),
-              ],
-              selected: {_stravaUploadMode},
-              onSelectionChanged: (selection) {
-                final mode = selection.first;
-                setState(() => _stravaUploadMode = mode);
-                _settingsService.saveSettings({
-                  SettingsService.keyStravaUploadMode: mode,
-                });
-              },
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _stravaUploadMode == 'api'
-                  ? '推荐使用 API 方式，最稳定。2026 年 7 月起 Strava API 将需要会员订阅，届时可切换到网页上传。'
-                  : '网页上传通过模拟浏览器登录 Strava，无需 API 凭证。',
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-          ],
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('上传到 行者'),
+          _buildPlatformCard(
+            title: '行者',
             value: _uploadToXingzhe,
             onChanged: _toggleUploadToXingzhe,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      XingzheSettingsScreen(settingsService: _settingsService),
+                ),
+              );
+            },
           ),
-          const SizedBox(height: 16),
-          if (_stravaUploadMode == 'api') ...[
-            const Text(
-              'Strava 凭证',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    '为什么需要填写 Strava 凭证？',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+          _buildPlatformCard(
+            title: 'Intervals.icu',
+            value: _uploadToIntervalsIcu,
+            onChanged: _toggleUploadToIntervalsIcu,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => IntervalsIcuSettingsScreen(
+                    settingsService: _settingsService,
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.info_outline),
-                  tooltip: '查看说明',
-                  onPressed: _showStravaApiInfo,
-                ),
-              ],
-            ),
-            ElevatedButton.icon(
-              onPressed: _authorizeStrava,
-              icon: const Icon(Icons.open_in_browser),
-              label: const Text('授权 Strava'),
-            ),
-            const SizedBox(height: 12),
-            for (final key in [
-              SettingsService.keyStravaClientId,
-              SettingsService.keyStravaClientSecret,
-              SettingsService.keyStravaAccessToken,
-              SettingsService.keyStravaRefreshToken,
-              SettingsService.keyStravaExpiresAt,
-            ])
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: TextField(
-                  controller: _controllers[key],
-                  obscureText: _obscured.contains(key),
-                  decoration: InputDecoration(
-                    labelText: _labels[key],
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-              ),
-          ] else ...[
-            const Text(
-              'Strava 网页登录',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _controllers[SettingsService.keyStravaWebCookies]!.text.isNotEmpty
-                  ? '已登录'
-                  : '未登录',
-              style: TextStyle(
-                color:
-                    _controllers[SettingsService.keyStravaWebCookies]!
-                        .text
-                        .isNotEmpty
-                    ? Colors.green
-                    : Colors.red,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 8),
-            ElevatedButton(
-              onPressed: () async {
-                final result = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => StravaWebLoginScreen(
-                      onLoginSuccess: (cookies) async {
-                        await _settingsService.saveSettings({
-                          SettingsService.keyStravaWebCookies: cookies,
-                        });
-                      },
-                    ),
-                  ),
-                );
-                if (result == true && mounted) {
-                  await _load();
-                  if (mounted) {
-                    // ignore: use_build_context_synchronously
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Strava 登录成功')),
-                    );
-                  }
-                }
-              },
-              child: const Text('登录 Strava'),
-            ),
-          ],
-          const SizedBox(height: 16),
-          const Text(
-            '行者 凭证',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              );
+            },
           ),
-          const SizedBox(height: 8),
-          for (final key in [
-            SettingsService.keyXingzheUsername,
-            SettingsService.keyXingzhePassword,
-          ])
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: TextField(
-                controller: _controllers[key],
-                obscureText: _obscured.contains(key),
-                decoration: InputDecoration(
-                  labelText: _labels[key],
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _savingXingzheCredentials
-                      ? null
-                      : () => _saveXingzheCredentials(validateAfterSave: true),
-                  child: _savingXingzheCredentials
-                      ? const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            SizedBox(width: 8),
-                            Text('登录中...'),
-                          ],
-                        )
-                      : const Text('登录 行者'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
         ],
       ),
     );

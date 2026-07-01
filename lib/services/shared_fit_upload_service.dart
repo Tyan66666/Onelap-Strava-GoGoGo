@@ -241,6 +241,9 @@ class SharedFitUploadService {
       sport: sessionMeta.sport,
       uploadedToStrava: plan.targets.contains(FitUploadPlatform.strava),
       uploadedToXingzhe: plan.targets.contains(FitUploadPlatform.xingzhe),
+      uploadedToIntervalsIcu: plan.targets.contains(
+        FitUploadPlatform.intervalsIcu,
+      ),
       platformResults: coordinatorResult.platformResults
           .map(
             (FitUploadPlatformResult result) => PlatformSyncResult(
@@ -389,6 +392,7 @@ class SharedFitUploadService {
     return switch (platform) {
       FitUploadPlatform.strava => SyncPlatform.strava,
       FitUploadPlatform.xingzhe => SyncPlatform.xingzhe,
+      FitUploadPlatform.intervalsIcu => SyncPlatform.intervalsIcu,
     };
   }
 
@@ -521,6 +525,7 @@ class SharedFitUploadService {
     return switch (platform) {
       FitUploadPlatform.strava => 'Strava',
       FitUploadPlatform.xingzhe => '行者',
+      FitUploadPlatform.intervalsIcu => 'Intervals.icu',
     };
   }
 

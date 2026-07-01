@@ -58,6 +58,11 @@ class SyncSummary {
   final int stravaDeduped;
   final List<FailedActivitySummary> stravaFailures;
 
+  final int intervalsIcuSuccess;
+  final int intervalsIcuFailed;
+  final int intervalsIcuDeduped;
+  final List<FailedActivitySummary> intervalsIcuFailures;
+
   /// 本次同步运行时间戳（用于 banner 记录）
   final DateTime? syncedAt;
 
@@ -76,6 +81,10 @@ class SyncSummary {
     this.stravaFailed = 0,
     this.stravaDeduped = 0,
     this.stravaFailures = const [],
+    this.intervalsIcuSuccess = 0,
+    this.intervalsIcuFailed = 0,
+    this.intervalsIcuDeduped = 0,
+    this.intervalsIcuFailures = const [],
     this.syncedAt,
   });
 

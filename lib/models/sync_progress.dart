@@ -6,6 +6,8 @@ class SyncProgress {
   final int xingzheUploaded;
   final bool stravaEnabled;
   final bool xingzheEnabled;
+  final int intervalsIcuUploaded;
+  final bool intervalsIcuEnabled;
 
   const SyncProgress({
     this.totalActivities = 0,
@@ -15,6 +17,8 @@ class SyncProgress {
     this.xingzheUploaded = 0,
     this.stravaEnabled = false,
     this.xingzheEnabled = false,
+    this.intervalsIcuUploaded = 0,
+    this.intervalsIcuEnabled = false,
   });
 
   SyncProgress copyWith({
@@ -25,6 +29,8 @@ class SyncProgress {
     int? xingzheUploaded,
     bool? stravaEnabled,
     bool? xingzheEnabled,
+    int? intervalsIcuUploaded,
+    bool? intervalsIcuEnabled,
   }) {
     return SyncProgress(
       totalActivities: totalActivities ?? this.totalActivities,
@@ -34,6 +40,8 @@ class SyncProgress {
       xingzheUploaded: xingzheUploaded ?? this.xingzheUploaded,
       stravaEnabled: stravaEnabled ?? this.stravaEnabled,
       xingzheEnabled: xingzheEnabled ?? this.xingzheEnabled,
+      intervalsIcuUploaded: intervalsIcuUploaded ?? this.intervalsIcuUploaded,
+      intervalsIcuEnabled: intervalsIcuEnabled ?? this.intervalsIcuEnabled,
     );
   }
 
@@ -48,7 +56,9 @@ class SyncProgress {
           stravaUploaded == other.stravaUploaded &&
           xingzheUploaded == other.xingzheUploaded &&
           stravaEnabled == other.stravaEnabled &&
-          xingzheEnabled == other.xingzheEnabled;
+          xingzheEnabled == other.xingzheEnabled &&
+          intervalsIcuUploaded == other.intervalsIcuUploaded &&
+          intervalsIcuEnabled == other.intervalsIcuEnabled;
 
   @override
   int get hashCode => Object.hash(
@@ -59,11 +69,14 @@ class SyncProgress {
     xingzheUploaded,
     stravaEnabled,
     xingzheEnabled,
+    intervalsIcuUploaded,
+    intervalsIcuEnabled,
   );
 
   @override
   String toString() =>
       'SyncProgress(total: $totalActivities, processed: $processed, '
       'uploadTotal: $uploadTotal, strava: $stravaUploaded/$uploadTotal, '
-      'xingzhe: $xingzheUploaded/$uploadTotal)';
+      'xingzhe: $xingzheUploaded/$uploadTotal, '
+      'intervalsIcu: $intervalsIcuUploaded/$uploadTotal)';
 }

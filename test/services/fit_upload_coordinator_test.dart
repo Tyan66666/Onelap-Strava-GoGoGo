@@ -66,30 +66,38 @@ class _FakeFitPlatformUploader implements FitPlatformUploader {
 Map<String, String> _settings({
   String uploadToStrava = 'false',
   String uploadToXingzhe = 'false',
+  String uploadToIntervalsIcu = 'false',
   String stravaClientId = 'client-id',
   String stravaClientSecret = 'client-secret',
   String stravaRefreshToken = 'refresh-token',
   String xingzheUsername = 'xingzhe-user',
   String xingzhePassword = 'xingzhe-password',
+  String intervalsIcuAthleteId = '12345',
+  String intervalsIcuApiKey = 'test-api-key',
 }) {
   return <String, String>{
     SettingsService.keyUploadToStrava: uploadToStrava,
     SettingsService.keyUploadToXingzhe: uploadToXingzhe,
+    SettingsService.keyUploadToIntervalsIcu: uploadToIntervalsIcu,
     SettingsService.keyStravaClientId: stravaClientId,
     SettingsService.keyStravaClientSecret: stravaClientSecret,
     SettingsService.keyStravaRefreshToken: stravaRefreshToken,
     SettingsService.keyXingzheUsername: xingzheUsername,
     SettingsService.keyXingzhePassword: xingzhePassword,
+    SettingsService.keyIntervalsIcuAthleteId: intervalsIcuAthleteId,
+    SettingsService.keyIntervalsIcuApiKey: intervalsIcuApiKey,
   };
 }
 
 FitUploadCoordinator _buildCoordinator({
   required _FakeFitPlatformUploader stravaUploader,
   required _FakeFitPlatformUploader xingzheUploader,
+  _FakeFitPlatformUploader? intervalsIcuUploader,
 }) {
   return FitUploadCoordinator(
     stravaUploader: stravaUploader,
     xingzheUploader: xingzheUploader,
+    intervalsIcuUploader: intervalsIcuUploader,
   );
 }
 
@@ -644,5 +652,178 @@ void main() {
       expect(stravaUploader.calls, 1);
       expect(xingzheUploader.calls, 1);
     });
+
+    test(
+      'IntervalsIcu-only enabled calls only the IntervalsIcu uploader',
+      () async {
+        final List<FitUploadPlatform> callOrder = <FitUploadPlatform>[];
+        final _FakeFitPlatformUploader stravaUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.strava,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.strava,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final _FakeFitPlatformUploader xingzheUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.xingzhe,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.xingzhe,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final _FakeFitPlatformUploader intervalsIcuUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.intervalsIcu,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.intervalsIcu,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final FitUploadCoordinator coordinator = _buildCoordinator(
+          stravaUploader: stravaUploader,
+          xingzheUploader: xingzheUploader,
+          intervalsIcuUploader: intervalsIcuUploader,
+        );
+
+        final FitUploadCoordinatorResult result = await coordinator.uploadFile(
+          testFile,
+          _settings(uploadToIntervalsIcu: 'true'),
+        );
+
+        expect(result.status, FitUploadCoordinatorStatus.success);
+        expect(result.hasPartialFailure, isFalse);
+        expect(result.allPlatformsSucceeded, isTrue);
+        expect(
+          result.platformResults.map((result) => result.platform),
+          <FitUploadPlatform>[FitUploadPlatform.intervalsIcu],
+        );
+        expect(stravaUploader.calls, 0);
+        expect(xingzheUploader.calls, 0);
+        expect(intervalsIcuUploader.calls, 1);
+        expect(callOrder, <FitUploadPlatform>[FitUploadPlatform.intervalsIcu]);
+        expect(intervalsIcuUploader.receivedFiles, <File>[testFile]);
+      },
+    );
+
+    test('All 3 platforms enabled call all uploaders in order', () async {
+      final List<FitUploadPlatform> callOrder = <FitUploadPlatform>[];
+      final _FakeFitPlatformUploader stravaUploader = _FakeFitPlatformUploader(
+        platform: FitUploadPlatform.strava,
+        callOrder: callOrder,
+        result: const FitUploadPlatformResult(
+          platform: FitUploadPlatform.strava,
+          status: FitUploadPlatformStatus.success,
+        ),
+      );
+      final _FakeFitPlatformUploader xingzheUploader = _FakeFitPlatformUploader(
+        platform: FitUploadPlatform.xingzhe,
+        callOrder: callOrder,
+        result: const FitUploadPlatformResult(
+          platform: FitUploadPlatform.xingzhe,
+          status: FitUploadPlatformStatus.success,
+        ),
+      );
+      final _FakeFitPlatformUploader intervalsIcuUploader =
+          _FakeFitPlatformUploader(
+            platform: FitUploadPlatform.intervalsIcu,
+            callOrder: callOrder,
+            result: const FitUploadPlatformResult(
+              platform: FitUploadPlatform.intervalsIcu,
+              status: FitUploadPlatformStatus.success,
+            ),
+          );
+      final FitUploadCoordinator coordinator = _buildCoordinator(
+        stravaUploader: stravaUploader,
+        xingzheUploader: xingzheUploader,
+        intervalsIcuUploader: intervalsIcuUploader,
+      );
+
+      final FitUploadCoordinatorResult result = await coordinator.uploadFile(
+        testFile,
+        _settings(
+          uploadToStrava: 'true',
+          uploadToXingzhe: 'true',
+          uploadToIntervalsIcu: 'true',
+        ),
+      );
+
+      expect(result.status, FitUploadCoordinatorStatus.success);
+      expect(
+        result.platformResults.map((result) => result.platform),
+        <FitUploadPlatform>[
+          FitUploadPlatform.strava,
+          FitUploadPlatform.xingzhe,
+          FitUploadPlatform.intervalsIcu,
+        ],
+      );
+      expect(stravaUploader.calls, 1);
+      expect(xingzheUploader.calls, 1);
+      expect(intervalsIcuUploader.calls, 1);
+      expect(callOrder, <FitUploadPlatform>[
+        FitUploadPlatform.strava,
+        FitUploadPlatform.xingzhe,
+        FitUploadPlatform.intervalsIcu,
+      ]);
+    });
+
+    test(
+      'IntervalsIcu enabled with missing credentials blocks upload before any uploader runs',
+      () async {
+        final List<FitUploadPlatform> callOrder = <FitUploadPlatform>[];
+        final _FakeFitPlatformUploader stravaUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.strava,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.strava,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final _FakeFitPlatformUploader xingzheUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.xingzhe,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.xingzhe,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final _FakeFitPlatformUploader intervalsIcuUploader =
+            _FakeFitPlatformUploader(
+              platform: FitUploadPlatform.intervalsIcu,
+              callOrder: callOrder,
+              result: const FitUploadPlatformResult(
+                platform: FitUploadPlatform.intervalsIcu,
+                status: FitUploadPlatformStatus.success,
+              ),
+            );
+        final FitUploadCoordinator coordinator = _buildCoordinator(
+          stravaUploader: stravaUploader,
+          xingzheUploader: xingzheUploader,
+          intervalsIcuUploader: intervalsIcuUploader,
+        );
+        final FitUploadPlan plan = coordinator.resolveUploadPlan(
+          _settings(uploadToIntervalsIcu: 'true', intervalsIcuAthleteId: ''),
+        );
+
+        final FitUploadCoordinatorResult result = await coordinator.uploadFile(
+          testFile,
+          _settings(uploadToIntervalsIcu: 'true', intervalsIcuAthleteId: ''),
+        );
+
+        expect(plan.hasMissingConfiguration, isTrue);
+        expect(result.status, FitUploadCoordinatorStatus.missingConfiguration);
+        expect(result.platformResults, isEmpty);
+        expect(stravaUploader.calls, 0);
+        expect(xingzheUploader.calls, 0);
+        expect(intervalsIcuUploader.calls, 0);
+        expect(callOrder, isEmpty);
+      },
+    );
   });
 }
