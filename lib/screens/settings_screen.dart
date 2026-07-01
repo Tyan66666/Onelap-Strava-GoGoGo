@@ -1,5 +1,11 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart' show Share, XFile;
+
+import '../services/config_service.dart';
 import '../services/onelap_client.dart';
 import '../services/settings_service.dart';
 import 'intervals_icu_settings_screen.dart';
@@ -47,6 +53,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _confirmedUploadToXingzhe = false;
   bool _confirmedUploadToIntervalsIcu = false;
 
+  late final ConfigService _configService;
+  bool _exporting = false;
+  bool _importing = false;
+
   static const _controllerKeys = [
     SettingsService.keyOneLapUsername,
     SettingsService.keyOneLapPassword,
@@ -65,6 +75,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _settingsService = widget.settingsService ?? SettingsService();
+    _configService = ConfigService(settingsService: _settingsService);
     for (final key in _controllerKeys) {
       _controllers[key] = TextEditingController();
     }
@@ -454,6 +465,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
     FocusScope.of(context).unfocus();
   }
 
+  Future<void> _exportConfig() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('导出配置'),
+        content: const Text('配置文件包含账号密码等敏感信息，请妥善保管。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _exporting = true);
+    Directory? tempDir;
+    try {
+      final json = await _configService.exportConfig();
+      tempDir = await Directory.systemTemp.createTemp('config');
+      final file = File('${tempDir.path}/onelap_config.json');
+      await file.writeAsString(json);
+      await Share.shareXFiles([XFile(file.path)], text: 'WanSync 配置文件');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+      tempDir?.delete(recursive: true).ignore();
+    }
+  }
+
+  Future<void> _importConfig() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('导入配置'),
+        content: const Text('将覆盖所有当前设置，是否继续？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    setState(() => _importing = true);
+    try {
+      final file = File(result.files.first.path!);
+      final json = await file.readAsString();
+      await _configService.importConfig(json);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('配置已导入')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('导入失败: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
   String? _validatedLookbackDays() {
     final String lookbackDays = _controllers[SettingsService.keyLookbackDays]!
         .text
@@ -635,6 +734,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               );
             },
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '配置文件管理',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _exporting ? null : _exportConfig,
+                  icon: _exporting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload),
+                  label: const Text('导出配置'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _importing ? null : _importConfig,
+                  icon: _importing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download),
+                  label: const Text('导入配置'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
