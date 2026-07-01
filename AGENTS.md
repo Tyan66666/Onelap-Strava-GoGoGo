@@ -144,7 +144,7 @@ git tag v1.0.18 && git push origin v1.0.18
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Onelap-Strava-GoGoGo** (2901 symbols, 5712 relationships, 183 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Onelap-Strava-GoGoGo** (2942 symbols, 5739 relationships, 181 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
