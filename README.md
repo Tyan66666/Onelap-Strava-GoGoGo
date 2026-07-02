@@ -2,9 +2,9 @@
 
 <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="96" alt="顽爪爪同步图标">
 
-一款可以同步顽鹿 FIT 文件到 Strava 和行者的小工具，也支持通过系统分享直接导入 FIT 文件上传。
+一款可以同步顽鹿 FIT 文件到 Strava、行者和 Intervals.icu 的小工具，也支持通过系统分享直接导入 FIT 文件上传。
 
-*A lightweight app to sync OneLap (顽鹿) FIT activity files to Strava and Xingzhe, with support for importing FIT files directly from the system share sheet.*
+*A lightweight app to sync OneLap (顽鹿) FIT activity files to Strava, Xingzhe, and Intervals.icu, with support for importing FIT files directly from the system share sheet.*
 
 ---
 
@@ -12,7 +12,7 @@
 
 - 自动从 OneLap 下载 FIT 活动文件 / Auto-download FIT files from OneLap
 - 支持从系统分享或“打开方式”接收 FIT 文件后上传到 Strava / Import FIT files from system share or open-in flows, then upload to Strava
-- 支持上传到 Strava 和行者，可单独开启或同时开启 / Upload to Strava and Xingzhe, either individually or together
+- 支持上传到 Strava、行者和 Intervals.icu，可单独开启或同时开启 / Upload to Strava, Xingzhe, and Intervals.icu, either individually or together
 - 各平台独立去重，避免重复上传 / Per-platform deduplication to avoid duplicate uploads
 - 可选在上传前将 GCJ-02 轨迹转换为 WGS84，适用于自动同步和分享上传 / Optionally convert GCJ-02 tracks to WGS84 before upload for both sync and shared FIT uploads
 - 设置同步天数（默认 3 天）/ Configurable lookback days (default 3)
@@ -27,6 +27,7 @@
 
 1. OneLap（顽鹿）账号 / An OneLap account
 2. Strava 账号 / A Strava account
+3. （可选）Intervals.icu 账号 / (Optional) An Intervals.icu account
 
 > **上传方式：** 支持两种 Strava 上传方式，可在设置中切换：
 > - **API 模式（推荐）：** 需要自己的 Strava API 应用（Client ID + Client Secret），最稳定。Strava 对个人开发者 API 有配额限制（每 15 分钟 200 次、每天 2000 次）。
@@ -50,6 +51,16 @@
 > 使用Google账户登录时，可能因谷歌限制无法正常完成OAuth授权，此时可在https://www.strava.com/account 中修改电子邮件地址，之后使用新的邮箱登录
 >
 > When logging in with a Google account, OAuth authorization may not be completed normally due to Google's restrictions. In this case, you can modify your email address at https://www.strava.com/account and then log in using the email address
+
+---
+
+## 设置 Intervals.icu（可选）/ Setting Up Intervals.icu (optional)
+
+1. 登录 https://intervals.icu / Log in at https://intervals.icu
+2. 进入 Settings > Developer，生成 API Key / Go to Settings > Developer and generate an API Key
+3. 在 Intervals.icu 运动员页面 URL 中找到 Athlete ID（格式为 `i12345`）/ Find your Athlete ID from the athlete page URL (format: `i12345`)
+4. 在 App 设置中打开 Intervals.icu，填入 Athlete ID 和 API Key / Enable Intervals.icu in app settings, fill in Athlete ID and API Key
+
 ---
 
 ## 使用方式 / Usage
@@ -60,11 +71,11 @@
 
 *After configuring OneLap and your destination platform(s) in the app, tap sync to download and upload activities within the configured lookback window.*
 
-可以在设置中选择上传到 Strava、行者，或同时上传到两个平台；每个平台都会独立判重并单独记录结果。
+可以在设置中选择上传到 Strava、行者、Intervals.icu，或同时上传到多个平台；每个平台都会独立判重并单独记录结果。
 
 Strava 上传支持 API 和网页两种模式：API 模式需要配置 Client ID/Secret，网页模式只需登录 Strava 账号。
 
-*In Settings, you can choose Strava, Xingzhe, or both. Each platform is deduplicated independently and keeps its own sync result.*
+*In Settings, you can choose Strava, Xingzhe, Intervals.icu, or any combination. Each platform is deduplicated independently and keeps its own sync result.*
 
 *Strava upload supports API and Web modes: API mode requires Client ID/Secret, Web mode only needs a Strava account login.*
 
@@ -119,9 +130,9 @@ flutter build apk --release --dart-define=FLUTTER_IMPELLER_ENABLED=false
 
 ## 免责声明 / Disclaimer
 
-本应用为个人开源项目，与 OneLap 及 Strava 官方无任何关联。使用本应用所产生的一切后果由用户自行承担，作者不承担任何责任。本应用不向任何第三方或作者服务器收集、传输用户数据。活动数据仅在你主动触发同步时上传至 Strava。所有凭证仅保存在设备本地。
+本应用为个人开源项目，与 OneLap、Strava 及 Intervals.icu 官方无任何关联。使用本应用所产生的一切后果由用户自行承担，作者不承担任何责任。本应用不向任何第三方或作者服务器收集、传输用户数据。活动数据仅在你主动触发同步时上传至 Strava 或 Intervals.icu。所有凭证仅保存在设备本地。
 
-*This is a personal open-source project with no affiliation to OneLap or Strava. Use at your own risk. The author accepts no liability. No user data is collected or sent to any third-party or author-controlled server. Activity data is only uploaded to Strava when you explicitly trigger a sync. All credentials are stored locally on your device.*
+*This is a personal open-source project with no affiliation to OneLap, Strava, or Intervals.icu. Use at your own risk. The author accepts no liability. No user data is collected or sent to any third-party or author-controlled server. Activity data is only uploaded to Strava or Intervals.icu when you explicitly trigger a sync. All credentials are stored locally on your device.*
 
 ---
 
