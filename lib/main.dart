@@ -47,6 +47,7 @@ class _OneLapStravaAppState extends State<OneLapStravaApp> {
       title: 'WanSync',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
+        scaffoldBackgroundColor: Colors.white,
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
