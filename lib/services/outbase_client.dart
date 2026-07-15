@@ -111,18 +111,18 @@ class OutbaseClient {
     }
 
     // Step 2: API registration
-    // API 使用 sessionid + uagent 自定义 header 认证（通过浏览器抓包确认）
+    // API 使用 Sessionid + Uagent 自定义 header 认证（通过浏览器抓包确认）
     // uagent 必须包含 "PCAgent/1.0.0"，否则服务器返回 "Please log in"
     final sign = md5.convert(fileBytes).toString();
     final fileName = file.path.split('/').last;
-    final fitGuid = guid;
+    final fitGuid = '$guid$dateTag'; // 必须包含 dateTag，与浏览器行为一致
     try {
       final apiResponse = await _dio.post(
         'https://melon-gateway.immomo.com/zeusfit/api/h5/sport/upload/fit',
         options: Options(
           headers: {
-            'sessionid': sessionId,
-            'uagent':
+            'Sessionid': sessionId, // 注意大小写：Sessionid
+            'Uagent': // 注意大小写：Uagent
                 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0 PCAgent/1.0.0',
             'Content-Type': 'application/json',
           },
@@ -223,7 +223,7 @@ class OutbaseClient {
   ///
   /// 格式（通过 agent-browser 抓取浏览器真实请求确认）：
   /// - `id`: guid（带连字符）+ dateTag，如 `a789001e-17da-4b70-a824-ebf89031d6c220260714`
-  /// - `uri`: 前缀用 hex-only 前 4 字符，文件名用 guid+dateTag
+  /// - `uri`: 前缀用 hex-only 前 4 字符，文件名用 guid（带连字符）+ dateTag
   ///   如 `/resource/a7/89/a789001e-17da-4b70-a824-ebf89031d6c220260714.fit`
   /// - `uri` 中文件名必须包含 dateTag，否则 CDN 返回 "meta.uri is illegal"
   String _buildCdnUrl(String guid, String dateTag) {
