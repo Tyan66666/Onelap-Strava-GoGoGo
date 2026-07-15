@@ -77,9 +77,7 @@ class OutbaseClient {
         if (_isDuplicateIndication(body)) {
           cdnFileAlreadyExists = true;
         } else {
-          throw OutbasePermanentError(
-            'CDN upload failed: $cdnStatus $body',
-          );
+          throw OutbasePermanentError('CDN upload failed: $cdnStatus $body');
         }
       }
       if (!cdnFileAlreadyExists) {

@@ -28,14 +28,17 @@ void main() async {
   print('guidHex (no hyphens): $guidHex');
   print('dateTag: $dateTagVal');
 
-  final dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(seconds: 30),
-  ));
+  final dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
+    ),
+  );
 
   // Test 1: Current implementation (no hyphens in id and uri)
   print('\n=== Test 1: Current implementation (no hyphens) ===');
-  final url1 = 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+  final url1 =
+      'https://melon-gateway.immomo.com/zeusfit/resource/upload'
       '?source=zeusfit'
       '&id=$guidHex$dateTagVal'
       '&uri=/resource/$prefix1/$prefix2/$guidHex.fit'
@@ -45,7 +48,8 @@ void main() async {
 
   // Test 2: Spec format (hyphens in id, hyphens in uri) — WRONG
   print('\n=== Test 2: Spec format (hyphens in id and uri) ===');
-  final url2 = 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+  final url2 =
+      'https://melon-gateway.immomo.com/zeusfit/resource/upload'
       '?source=zeusfit'
       '&id=$guid$dateTagVal'
       '&uri=/resource/$prefix1/$prefix2/$guid.fit'
@@ -55,7 +59,8 @@ void main() async {
 
   // Test 3: Browser format (hyphens in id, hyphens+dateTag in uri)
   print('\n=== Test 3: Browser format (hyphens+dateTag in uri) ===');
-  final url3 = 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+  final url3 =
+      'https://melon-gateway.immomo.com/zeusfit/resource/upload'
       '?source=zeusfit'
       '&id=$guid$dateTagVal'
       '&uri=/resource/$prefix1/$prefix2/$guid$dateTagVal.fit'
@@ -65,7 +70,8 @@ void main() async {
 
   // Test 4: Browser format without trailing &
   print('\n=== Test 4: Browser format without trailing & ===');
-  final url4 = 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+  final url4 =
+      'https://melon-gateway.immomo.com/zeusfit/resource/upload'
       '?source=zeusfit'
       '&id=$guid$dateTagVal'
       '&uri=/resource/$prefix1/$prefix2/$guid$dateTagVal.fit'
@@ -75,7 +81,8 @@ void main() async {
 
   // Test 5: With trailing & (like spec shows)
   print('\n=== Test 5: With trailing & ===');
-  final url5 = 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+  final url5 =
+      'https://melon-gateway.immomo.com/zeusfit/resource/upload'
       '?source=zeusfit'
       '&id=$guid$dateTagVal'
       '&uri=/resource/$prefix1/$prefix2/$guid.fit'

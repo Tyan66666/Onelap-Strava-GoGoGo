@@ -221,132 +221,133 @@ void main() {
     });
 
     test(
-        'proceeds to API registration when CDN returns 400 with duplicate indication',
-        () async {
-      final dio = Dio();
-      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString().contains('resource/upload')) {
-          // CDN returns 400 with "already exists" message
+      'proceeds to API registration when CDN returns 400 with duplicate indication',
+      () async {
+        final dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          if (options.uri.toString().contains('resource/upload')) {
+            // CDN returns 400 with "already exists" message
+            return ResponseBody.fromString(
+              jsonEncode({'message': 'file already exists'}),
+              400,
+              headers: {
+                Headers.contentTypeHeader: ['application/json'],
+              },
+            );
+          }
+          // API registration succeeds
           return ResponseBody.fromString(
-            jsonEncode({'message': 'file already exists'}),
-            400,
-            headers: {
-              Headers.contentTypeHeader: ['application/json'],
-            },
-          );
-        }
-        // API registration succeeds
-        return ResponseBody.fromString(
-          jsonEncode({'ec': 0, 'em': '', 'data': {}}),
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['application/json'],
-          },
-        );
-      });
-
-      final client = OutbaseClient(sessionId: 'test-session', dio: dio);
-      final result = await client.uploadFit(fitFile);
-
-      expect(result.success, true);
-      expect(result.alreadyUploaded, false);
-    });
-
-    test(
-        'returns alreadyUploaded when CDN duplicate and API returns duplicate message',
-        () async {
-      final dio = Dio();
-      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString().contains('resource/upload')) {
-          return ResponseBody.fromString(
-            jsonEncode({'message': 'file already exists'}),
-            400,
-            headers: {
-              Headers.contentTypeHeader: ['application/json'],
-            },
-          );
-        }
-        // API returns duplicate message
-        return ResponseBody.fromString(
-          jsonEncode({
-            'ec': 1,
-            'em': '相同时间内已存在其他运动数据',
-            'data': {},
-          }),
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['application/json'],
-          },
-        );
-      });
-
-      final client = OutbaseClient(sessionId: 'test-session', dio: dio);
-      final result = await client.uploadFit(fitFile);
-
-      expect(result.success, false);
-      expect(result.alreadyUploaded, true);
-    });
-
-    test(
-        'throws OutbasePermanentError when CDN 400 has no duplicate indication',
-        () async {
-      final dio = Dio();
-      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString().contains('resource/upload')) {
-          return ResponseBody.fromString(
-            jsonEncode({'message': 'Invalid file format'}),
-            400,
-            headers: {
-              Headers.contentTypeHeader: ['application/json'],
-            },
-          );
-        }
-        return ResponseBody.fromString(
-          jsonEncode({'ec': 0, 'em': '', 'data': {}}),
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['application/json'],
-          },
-        );
-      });
-
-      final client = OutbaseClient(sessionId: 'test-session', dio: dio);
-
-      expect(
-        () => client.uploadFit(fitFile),
-        throwsA(isA<OutbasePermanentError>()),
-      );
-    });
-
-    test('throws OutbasePermanentError when API returns "Please log in"',
-        () async {
-      final dio = Dio();
-      dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString().contains('resource/upload')) {
-          return ResponseBody.fromString(
-            jsonEncode({'message': 'SUCCESS', 'data': {}}),
+            jsonEncode({'ec': 0, 'em': '', 'data': {}}),
             200,
             headers: {
               Headers.contentTypeHeader: ['application/json'],
             },
           );
-        }
-        // API returns "Please log in"
-        return ResponseBody.fromString(
-          jsonEncode({'ec': 1, 'em': 'Please log in', 'data': {}}),
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['application/json'],
-          },
+        });
+
+        final client = OutbaseClient(sessionId: 'test-session', dio: dio);
+        final result = await client.uploadFit(fitFile);
+
+        expect(result.success, true);
+        expect(result.alreadyUploaded, false);
+      },
+    );
+
+    test(
+      'returns alreadyUploaded when CDN duplicate and API returns duplicate message',
+      () async {
+        final dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          if (options.uri.toString().contains('resource/upload')) {
+            return ResponseBody.fromString(
+              jsonEncode({'message': 'file already exists'}),
+              400,
+              headers: {
+                Headers.contentTypeHeader: ['application/json'],
+              },
+            );
+          }
+          // API returns duplicate message
+          return ResponseBody.fromString(
+            jsonEncode({'ec': 1, 'em': '相同时间内已存在其他运动数据', 'data': {}}),
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['application/json'],
+            },
+          );
+        });
+
+        final client = OutbaseClient(sessionId: 'test-session', dio: dio);
+        final result = await client.uploadFit(fitFile);
+
+        expect(result.success, false);
+        expect(result.alreadyUploaded, true);
+      },
+    );
+
+    test(
+      'throws OutbasePermanentError when CDN 400 has no duplicate indication',
+      () async {
+        final dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          if (options.uri.toString().contains('resource/upload')) {
+            return ResponseBody.fromString(
+              jsonEncode({'message': 'Invalid file format'}),
+              400,
+              headers: {
+                Headers.contentTypeHeader: ['application/json'],
+              },
+            );
+          }
+          return ResponseBody.fromString(
+            jsonEncode({'ec': 0, 'em': '', 'data': {}}),
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['application/json'],
+            },
+          );
+        });
+
+        final client = OutbaseClient(sessionId: 'test-session', dio: dio);
+
+        expect(
+          () => client.uploadFit(fitFile),
+          throwsA(isA<OutbasePermanentError>()),
         );
-      });
+      },
+    );
 
-      final client = OutbaseClient(sessionId: 'test-session', dio: dio);
+    test(
+      'throws OutbasePermanentError when API returns "Please log in"',
+      () async {
+        final dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          if (options.uri.toString().contains('resource/upload')) {
+            return ResponseBody.fromString(
+              jsonEncode({'message': 'SUCCESS', 'data': {}}),
+              200,
+              headers: {
+                Headers.contentTypeHeader: ['application/json'],
+              },
+            );
+          }
+          // API returns "Please log in"
+          return ResponseBody.fromString(
+            jsonEncode({'ec': 1, 'em': 'Please log in', 'data': {}}),
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['application/json'],
+            },
+          );
+        });
 
-      expect(
-        () => client.uploadFit(fitFile),
-        throwsA(isA<OutbasePermanentError>()),
-      );
-    });
+        final client = OutbaseClient(sessionId: 'test-session', dio: dio);
+
+        expect(
+          () => client.uploadFit(fitFile),
+          throwsA(isA<OutbasePermanentError>()),
+        );
+      },
+    );
   });
 }

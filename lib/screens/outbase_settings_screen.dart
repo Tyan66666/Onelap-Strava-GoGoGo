@@ -30,7 +30,9 @@ class _OutbaseSettingsScreenState extends State<OutbaseSettingsScreen> {
     if (mounted) {
       setState(() {
         _sessionId = (id != null && id.isNotEmpty) ? id : null;
-        _loginTime = (loginTime != null && loginTime.isNotEmpty) ? loginTime : null;
+        _loginTime = (loginTime != null && loginTime.isNotEmpty)
+            ? loginTime
+            : null;
         _loading = false;
       });
     }
@@ -41,7 +43,9 @@ class _OutbaseSettingsScreenState extends State<OutbaseSettingsScreen> {
   }
 
   void _onSessionCaptured(String sessionId) async {
-    debugPrint('Outbase: captured sessionId=$sessionId (length=${sessionId.length})');
+    debugPrint(
+      'Outbase: captured sessionId=$sessionId (length=${sessionId.length})',
+    );
     final now = DateTime.now().toIso8601String();
     await _settingsService.saveSettings({
       SettingsService.keyOutbaseSessionId: sessionId,
@@ -162,7 +166,9 @@ class _OutbaseSettingsScreenState extends State<OutbaseSettingsScreen> {
             }
 
             if (!isDashboard && !hasSessionId) {
-              debugPrint('Outbase: not dashboard URL and no sessionId found, url=$url');
+              debugPrint(
+                'Outbase: not dashboard URL and no sessionId found, url=$url',
+              );
             }
           },
         ),
@@ -224,12 +230,16 @@ class _OutbaseSettingsScreenState extends State<OutbaseSettingsScreen> {
                                 : 'Outbase 账号已连接',
                             style: const TextStyle(color: Colors.grey),
                           ),
-                          if (_loginTime != null && _isSessionLikelyExpired(_loginTime!))
+                          if (_loginTime != null &&
+                              _isSessionLikelyExpired(_loginTime!))
                             const Padding(
                               padding: EdgeInsets.only(top: 4),
                               child: Text(
                                 '⚠️ Session 可能已过期（14天有效期），建议重新登录',
-                                style: TextStyle(color: Colors.orange, fontSize: 12),
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                         ],

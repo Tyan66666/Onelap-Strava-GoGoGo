@@ -416,7 +416,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       OutbaseClient? outbase;
       if (uploadToOutbase) {
-        debugPrint('Outbase sync: sessionId=$outbaseSessionId (length=${outbaseSessionId.length})');
+        debugPrint(
+          'Outbase sync: sessionId=$outbaseSessionId (length=${outbaseSessionId.length})',
+        );
         outbase = OutbaseClient(sessionId: outbaseSessionId);
       }
       final engine = SyncEngine(
