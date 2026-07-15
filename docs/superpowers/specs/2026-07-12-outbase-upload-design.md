@@ -11,19 +11,21 @@ Outbase（https://outbase.cn）是一个运动数据平台，支持批量导入 
 ### Outbase 上传流程（从浏览器抓包分析）
 
 1. **登录**: 手机号 + 短信验证码 + 极验 CAPTCHA，登录后获得 `sessionId` cookie（有效期 14 天）
-2. **CDN 上传**: `POST https://melon-gateway.immomo.com/zeusfit/resource/upload?source=zeusfit&id={guid}{date}&uri=/resource/{prefix}/{guid}.fit&momoid=0&`
+2. **CDN 上传**: `POST https://melon-gateway.immomo.com/zeusfit/resource/upload?source=zeusfit&id={guid}{date}&uri=/resource/{prefix}/{guid}{date}.fit&momoid=0&`
    - Body: `FormData(file)`
-   - 认证: `Cookie: sessionId={sessionId}`
+   - 认证: 无需认证（CDN 端点不校验 session）
    - 响应: `{message: "SUCCESS", data: {...}}`
+   - ⚠️ `uri` 中文件名必须包含 dateTag，否则 CDN 返回 "meta.uri is illegal"
 3. **API 注册**: `POST https://melon-gateway.immomo.com/zeusfit/api/h5/sport/upload/fit`
    - Body: `{fitGuid, sign (MD5 hex of file bytes), fileName, fileSize}`
-   - 认证: `Cookie: sessionId={sessionId}`
+   - 认证: 自定义 header `sessionid: {sessionId}` + `uagent: ...PCAgent/1.0.0`（通过浏览器抓包确认）
+   - ⚠️ `uagent` 值必须包含 `PCAgent/1.0.0`，否则服务器返回 "Please log in"
    - 响应: `{ec: 0, em: "", data: {...}}`（成功）或 `{ec: 非0, em: "错误消息"}`
-4. **去重机制**: "相同时间内已存在其他运动数据" —— Outbase 有自己的时间段去重
+4. **去重机制**: ec == 503 或消息包含 "相同时间内已存在其他运动数据" / "已存在" / "请勿重复上传" —— Outbase 有自己的时间段去重
 
 ### fitGuid 生成
 
-从抓包分析，`fitGuid` 格式为 UUID v4（带连字符），例如 `2bd492d6-fec2-4c55-b9e6-becd7451db662`。CDN 上传 URL 中的 `id` 为 `fitGuid + 日期标签`（如 `2bd492d6-fec2-4c55-b9e6-becd7451db66220260712`），`uri` 中的前缀为 fitGuid 前两个字符（如 `/resource/2b/d4/...`）。
+从抓包分析，`fitGuid` 格式为 UUID v4（带连字符），例如 `d636b65d-aee0-4211-9102-70a3eacbba07`。CDN 上传 URL 中的 `id` 为 `fitGuid + 日期标签`（如 `d636b65d-aee0-4211-9102-70a3eacbba0720260715`），`uri` 中的前缀为 fitGuid 去掉连字符后前 4 个 hex 字符拆成两段（如 `/resource/d6/36/...`）。
 
 ### sign 计算
 
@@ -46,15 +48,16 @@ Outbase（https://outbase.cn）是一个运动数据平台，支持批量导入 
   → 打开 OutbaseSettingsScreen
   → 如果未登录，显示 WebView 加载 Outbase 登录页
   → 用户在 WebView 中输入手机号 + 验证码登录
-  → 登录成功后（检测 URL 包含 dashboard.html 或 document.cookie 包含 sessionId）
+  → 登录成功后（检测 URL 包含 dashboard.html 或 document.cookie 包含 sessionId，OR 逻辑）
   → 注入 JS 读取 document.cookie
   → 从 cookie 中提取 sessionId 并保存到 flutter_secure_storage
-  → 显示登录状态
+  → 记录登录时间到 OUTBASE_LOGIN_TIME
+  → 显示登录状态和上次登录时间
 ```
 
 **sessionId 提取方式**: JS 注入（`document.cookie`）。从抓包分析，Outbase 使用 `Cookies.set("sessionId", ...)` 设置 cookie，说明它不是 httpOnly，JS 可读。
 
-**sessionId 过期处理**: 上传时如果 API 返回 401 或 session 相关错误，标记为 `failure` 并提示用户重新登录。UI 上显示上次登录时间，方便用户判断是否需要重新登录。
+**sessionId 过期处理**: 上传时如果 API 返回 401 或响应体中包含 `log in`/`登录`/`session` 关键词，标记为 `failure` 并提示用户重新登录。UI 上显示上次登录时间，接近 14 天时显示过期警告。
 
 ### 上传流程
 
@@ -116,6 +119,7 @@ enum SyncPlatform { strava, xingzhe, intervalsIcu, outbase }
 |-----|------|------|
 | `UPLOAD_TO_OUTBASE` | `bool` | 是否启用 Outbase 上传 |
 | `OUTBASE_SESSION_ID` | `string` | Outbase 登录 sessionId |
+| `OUTBASE_LOGIN_TIME` | `string` | 上次登录时间（ISO 8601） |
 
 需要添加到 `SettingsService.allKeys` 列表中。
 
@@ -254,14 +258,14 @@ class OutbaseFitUploader implements FitPlatformUploader {
 | 场景 | 处理方式 |
 |------|---------|
 | sessionId 为空 | 返回 failure，提示用户登录 |
-| CDN 上传 4xx | 抛出 OutbasePermanentError |
+| CDN 上传 4xx | 检查响应体是否为重复上传，是则继续 API 注册，否则抛出 OutbasePermanentError |
 | CDN 上传 5xx | 抛出 OutbaseRetriableError |
 | CDN 上传网络错误 | 抛出 OutbaseRetriableError |
 | API 注册 4xx | 抛出 OutbasePermanentError |
 | API 注册 5xx | 抛出 OutbaseRetriableError |
 | API 注册网络错误 | 抛出 OutbaseRetriableError |
-| API 返回 401/session 过期 | 返回 failure，提示用户重新登录 |
-| "相同时间内已存在其他运动数据" | 返回 alreadyUploaded |
+| API 返回 401 / 响应体含 log in/登录/session | 抛出 OutbasePermanentError，提示用户重新登录 |
+| ec == 503 或 "相同时间内已存在其他运动数据" / "已存在" / "请勿重复上传" | 返回 alreadyUploaded |
 | ec == 0 | 返回 success |
 | 其他错误消息 | 返回 failure |
 
