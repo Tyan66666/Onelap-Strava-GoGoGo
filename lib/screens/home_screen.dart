@@ -170,9 +170,27 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _checkForUpdate() async {
+  Future<void> _checkForUpdate({bool showFeedback = false}) async {
     final updateInfo = await UpdateChecker.check();
-    if (!mounted || !updateInfo.hasUpdate) return;
+    if (!mounted) return;
+    if (!updateInfo.hasUpdate) {
+      if (showFeedback) {
+        showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('检查更新'),
+            content: const Text('此为最新版本。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('好的'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
     _showUpdateDialog(updateInfo);
   }
 
@@ -1080,7 +1098,7 @@ class _HomeScreenState extends State<HomeScreen> {
               InkWell(
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  _checkForUpdate();
+                  _checkForUpdate(showFeedback: true);
                 },
                 child: const Text(
                   '检查更新',
