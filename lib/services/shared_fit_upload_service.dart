@@ -244,6 +244,7 @@ class SharedFitUploadService {
       uploadedToIntervalsIcu: plan.targets.contains(
         FitUploadPlatform.intervalsIcu,
       ),
+      uploadedToOutbase: plan.targets.contains(FitUploadPlatform.outbase),
       platformResults: coordinatorResult.platformResults
           .map(
             (FitUploadPlatformResult result) => PlatformSyncResult(
@@ -393,6 +394,7 @@ class SharedFitUploadService {
       FitUploadPlatform.strava => SyncPlatform.strava,
       FitUploadPlatform.xingzhe => SyncPlatform.xingzhe,
       FitUploadPlatform.intervalsIcu => SyncPlatform.intervalsIcu,
+      FitUploadPlatform.outbase => SyncPlatform.outbase,
     };
   }
 
@@ -515,7 +517,7 @@ class SharedFitUploadService {
 
   String _joinTargetLabels(List<String> labels) {
     if (labels.length == 2) {
-      return '${labels.first} 和${labels.last}';
+      return '${labels.first} 和 ${labels.last}';
     }
 
     return labels.join('、');
@@ -526,6 +528,7 @@ class SharedFitUploadService {
       FitUploadPlatform.strava => 'Strava',
       FitUploadPlatform.xingzhe => '行者',
       FitUploadPlatform.intervalsIcu => 'Intervals.icu',
+      FitUploadPlatform.outbase => 'Outbase',
     };
   }
 

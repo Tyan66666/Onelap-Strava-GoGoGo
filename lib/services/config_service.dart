@@ -9,7 +9,7 @@ class ConfigService {
   final SettingsService _settingsService;
 
   ConfigService({required SettingsService settingsService})
-      : _settingsService = settingsService;
+    : _settingsService = settingsService;
 
   Future<String> exportConfig({String? appVersion}) async {
     final version = appVersion ?? (await PackageInfo.fromPlatform()).version;
@@ -62,6 +62,9 @@ class ConfigService {
         'athleteId': settings[SettingsService.keyIntervalsIcuAthleteId] ?? '',
         'apiKey': settings[SettingsService.keyIntervalsIcuApiKey] ?? '',
       },
+      'outbase': {
+        'sessionId': settings[SettingsService.keyOutbaseSessionId] ?? '',
+      },
       'sync': {
         'lookbackDays':
             int.tryParse(settings[SettingsService.keyLookbackDays] ?? '') ?? 3,
@@ -73,6 +76,8 @@ class ConfigService {
             settings[SettingsService.keyUploadToXingzhe] == 'true',
         'uploadToIntervalsIcu':
             settings[SettingsService.keyUploadToIntervalsIcu] == 'true',
+        'uploadToOutbase':
+            settings[SettingsService.keyUploadToOutbase] == 'true',
       },
     };
   }
@@ -82,6 +87,7 @@ class ConfigService {
     final strava = _castMap(json['strava']);
     final xingzhe = _castMap(json['xingzhe']);
     final intervalsIcu = _castMap(json['intervalsIcu']);
+    final outbase = _castMap(json['outbase']);
     final sync = _castMap(json['sync']);
 
     return {
@@ -99,15 +105,18 @@ class ConfigService {
       SettingsService.keyXingzheSessionId: xingzhe['sessionId'] ?? '',
       SettingsService.keyIntervalsIcuAthleteId: intervalsIcu['athleteId'] ?? '',
       SettingsService.keyIntervalsIcuApiKey: intervalsIcu['apiKey'] ?? '',
+      SettingsService.keyOutbaseSessionId: outbase['sessionId'] ?? '',
       SettingsService.keyLookbackDays: (sync['lookbackDays'] ?? 3).toString(),
       SettingsService.keyGcjCorrectionEnabled:
           (sync['gcjCorrectionEnabled'] ?? false).toString(),
-      SettingsService.keyUploadToStrava:
-          (sync['uploadToStrava'] ?? true).toString(),
-      SettingsService.keyUploadToXingzhe:
-          (sync['uploadToXingzhe'] ?? false).toString(),
+      SettingsService.keyUploadToStrava: (sync['uploadToStrava'] ?? true)
+          .toString(),
+      SettingsService.keyUploadToXingzhe: (sync['uploadToXingzhe'] ?? false)
+          .toString(),
       SettingsService.keyUploadToIntervalsIcu:
           (sync['uploadToIntervalsIcu'] ?? false).toString(),
+      SettingsService.keyUploadToOutbase: (sync['uploadToOutbase'] ?? false)
+          .toString(),
     };
   }
 

@@ -1,4 +1,4 @@
-enum SyncPlatform { strava, xingzhe, intervalsIcu }
+enum SyncPlatform { strava, xingzhe, intervalsIcu, outbase }
 
 enum SyncStatus { pending, success, failed, deduped }
 
@@ -76,6 +76,7 @@ class SyncRecord {
   final bool uploadedToStrava;
   final bool uploadedToXingzhe;
   final bool uploadedToIntervalsIcu;
+  final bool uploadedToOutbase;
   final List<PlatformSyncResult> platformResults;
 
   const SyncRecord({
@@ -89,6 +90,7 @@ class SyncRecord {
     this.uploadedToStrava = false,
     this.uploadedToXingzhe = false,
     this.uploadedToIntervalsIcu = false,
+    this.uploadedToOutbase = false,
     this.platformResults = const [],
   });
 
@@ -124,6 +126,7 @@ class SyncRecord {
     'uploadedToStrava': uploadedToStrava,
     'uploadedToXingzhe': uploadedToXingzhe,
     'uploadedToIntervalsIcu': uploadedToIntervalsIcu,
+    'uploadedToOutbase': uploadedToOutbase,
     'platformResults': platformResults.map((r) => r.toJson()).toList(),
   };
 
@@ -141,6 +144,7 @@ class SyncRecord {
       uploadedToStrava: json['uploadedToStrava'] as bool? ?? false,
       uploadedToXingzhe: json['uploadedToXingzhe'] as bool? ?? false,
       uploadedToIntervalsIcu: json['uploadedToIntervalsIcu'] as bool? ?? false,
+      uploadedToOutbase: json['uploadedToOutbase'] as bool? ?? false,
       platformResults:
           (json['platformResults'] as List<dynamic>?)
               ?.map(
@@ -162,6 +166,7 @@ class SyncRecord {
     bool? uploadedToStrava,
     bool? uploadedToXingzhe,
     bool? uploadedToIntervalsIcu,
+    bool? uploadedToOutbase,
     List<PlatformSyncResult>? platformResults,
   }) {
     return SyncRecord(
@@ -176,6 +181,7 @@ class SyncRecord {
       uploadedToXingzhe: uploadedToXingzhe ?? this.uploadedToXingzhe,
       uploadedToIntervalsIcu:
           uploadedToIntervalsIcu ?? this.uploadedToIntervalsIcu,
+      uploadedToOutbase: uploadedToOutbase ?? this.uploadedToOutbase,
       platformResults: platformResults ?? this.platformResults,
     );
   }
@@ -226,6 +232,7 @@ class SyncRecord {
       uploadedToXingzhe: base.uploadedToXingzhe || uploadedToXingzhe,
       uploadedToIntervalsIcu:
           base.uploadedToIntervalsIcu || uploadedToIntervalsIcu,
+      uploadedToOutbase: base.uploadedToOutbase || uploadedToOutbase,
       platformResults: allResults,
     );
   }

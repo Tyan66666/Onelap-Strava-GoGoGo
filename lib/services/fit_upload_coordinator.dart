@@ -1,11 +1,12 @@
 import 'dart:io';
 
 import 'intervals_icu_fit_uploader.dart';
+import 'outbase_fit_uploader.dart';
 import 'settings_service.dart';
 import 'strava_fit_uploader.dart';
 import 'xingzhe_fit_uploader.dart';
 
-enum FitUploadPlatform { strava, xingzhe, intervalsIcu }
+enum FitUploadPlatform { strava, xingzhe, intervalsIcu, outbase }
 
 enum FitUploadPlatformStatus { success, alreadyUploaded, failure }
 
@@ -91,6 +92,7 @@ class FitUploadCoordinator {
     FitPlatformUploader? stravaUploader,
     FitPlatformUploader? xingzheUploader,
     FitPlatformUploader? intervalsIcuUploader,
+    FitPlatformUploader? outbaseUploader,
     StravaFitUploadClientFactory? stravaClientFactory,
     XingzheSessionClientFactory? xingzheSessionClientFactory,
     XingzheLoginClientFactory? xingzheLoginClientFactory,
@@ -104,11 +106,13 @@ class FitUploadCoordinator {
              loginClient: xingzheLoginClientFactory,
            ),
        _intervalsIcuUploader =
-           intervalsIcuUploader ?? IntervalsIcuFitUploader();
+           intervalsIcuUploader ?? IntervalsIcuFitUploader(),
+       _outbaseUploader = outbaseUploader ?? OutbaseFitUploader();
 
   final FitPlatformUploader _stravaUploader;
   final FitPlatformUploader _xingzheUploader;
   final FitPlatformUploader _intervalsIcuUploader;
+  final FitPlatformUploader _outbaseUploader;
 
   FitUploadPlan resolveUploadPlan(Map<String, String> settings) {
     final List<FitUploadPlatform> targets = <FitUploadPlatform>[];
@@ -123,6 +127,10 @@ class FitUploadCoordinator {
 
     if (_isEnabled(settings, SettingsService.keyUploadToIntervalsIcu)) {
       targets.add(FitUploadPlatform.intervalsIcu);
+    }
+
+    if (_isEnabled(settings, SettingsService.keyUploadToOutbase)) {
+      targets.add(FitUploadPlatform.outbase);
     }
 
     return FitUploadPlan(
@@ -190,6 +198,7 @@ class FitUploadCoordinator {
       FitUploadPlatform.strava => _stravaUploader,
       FitUploadPlatform.xingzhe => _xingzheUploader,
       FitUploadPlatform.intervalsIcu => _intervalsIcuUploader,
+      FitUploadPlatform.outbase => _outbaseUploader,
     };
 
     try {
@@ -238,6 +247,11 @@ class FitUploadCoordinator {
               !_hasValue(settings, SettingsService.keyIntervalsIcuApiKey))) {
         return false;
       }
+
+      if (platform == FitUploadPlatform.outbase &&
+          !_hasValue(settings, SettingsService.keyOutbaseSessionId)) {
+        return false;
+      }
     }
 
     return true;
@@ -252,37 +266,18 @@ class FitUploadCoordinator {
   }
 
   String _targetLabel(List<FitUploadPlatform> targets) {
-    if (targets.length == 3) {
-      return 'Strava、行者 和 Intervals.icu';
-    }
+    final labels = targets.map(_singlePlatformLabel).toList();
+    if (labels.length == 1) return labels.first;
+    if (labels.length == 2) return '${labels.first} 和 ${labels.last}';
+    return labels.join('、');
+  }
 
-    if (targets.length == 2) {
-      if (targets.contains(FitUploadPlatform.strava) &&
-          targets.contains(FitUploadPlatform.xingzhe)) {
-        return 'Strava 和行者';
-      }
-      if (targets.contains(FitUploadPlatform.strava) &&
-          targets.contains(FitUploadPlatform.intervalsIcu)) {
-        return 'Strava 和 Intervals.icu';
-      }
-      if (targets.contains(FitUploadPlatform.xingzhe) &&
-          targets.contains(FitUploadPlatform.intervalsIcu)) {
-        return '行者 和 Intervals.icu';
-      }
-    }
-
-    if (targets.length == 1) {
-      if (targets.contains(FitUploadPlatform.strava)) {
-        return 'Strava';
-      }
-      if (targets.contains(FitUploadPlatform.xingzhe)) {
-        return '行者';
-      }
-      if (targets.contains(FitUploadPlatform.intervalsIcu)) {
-        return 'Intervals.icu';
-      }
-    }
-
-    return '';
+  String _singlePlatformLabel(FitUploadPlatform p) {
+    return switch (p) {
+      FitUploadPlatform.strava => 'Strava',
+      FitUploadPlatform.xingzhe => '行者',
+      FitUploadPlatform.intervalsIcu => 'Intervals.icu',
+      FitUploadPlatform.outbase => 'Outbase',
+    };
   }
 }

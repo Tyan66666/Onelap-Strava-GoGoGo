@@ -226,7 +226,7 @@ void main() {
               FitUploadPlatform.xingzhe,
             ],
             hasMissingConfiguration: false,
-            targetLabel: 'Strava 和行者',
+            targetLabel: 'Strava 和 行者',
           ),
         );
         final SharedFitUploadService service = SharedFitUploadService(
@@ -237,7 +237,7 @@ void main() {
 
         final FitUploadPlan plan = await service.loadUploadPlan();
 
-        expect(plan.targetLabel, 'Strava 和行者');
+        expect(plan.targetLabel, 'Strava 和 行者');
         expect(coordinator.resolveUploadPlanCalls, 1);
       },
     );
@@ -570,7 +570,7 @@ void main() {
             FitUploadPlatform.xingzhe,
           ],
           hasMissingConfiguration: false,
-          targetLabel: 'Strava 和行者',
+          targetLabel: 'Strava 和 行者',
         ),
         result: FitUploadCoordinatorResult(
           status: FitUploadCoordinatorStatus.partialSuccess,
@@ -623,7 +623,7 @@ void main() {
             FitUploadPlatform.xingzhe,
           ],
           hasMissingConfiguration: false,
-          targetLabel: 'Strava 和行者',
+          targetLabel: 'Strava 和 行者',
         ),
         result: FitUploadCoordinatorResult(
           status: FitUploadCoordinatorStatus.success,
@@ -653,7 +653,7 @@ void main() {
       final SharedFitUploadResult result = await service.uploadDraft(draft);
 
       expect(result.status, SharedFitUploadStatus.success);
-      expect(result.message, 'FIT 文件已经上传到 Strava 和行者。');
+      expect(result.message, 'FIT 文件已经上传到 Strava 和 行者。');
     });
 
     test(
@@ -677,7 +677,7 @@ void main() {
               FitUploadPlatform.xingzhe,
             ],
             hasMissingConfiguration: false,
-            targetLabel: 'Strava 和行者',
+            targetLabel: 'Strava 和 行者',
           ),
           result: FitUploadCoordinatorResult(
             status: FitUploadCoordinatorStatus.success,
@@ -707,7 +707,7 @@ void main() {
         final SharedFitUploadResult result = await service.uploadDraft(draft);
 
         expect(result.status, SharedFitUploadStatus.success);
-        expect(result.message, 'FIT 文件已经上传到 Strava 和行者。');
+        expect(result.message, 'FIT 文件已经上传到 Strava 和 行者。');
       },
     );
 
@@ -730,7 +730,7 @@ void main() {
             FitUploadPlatform.xingzhe,
           ],
           hasMissingConfiguration: false,
-          targetLabel: 'Strava 和行者',
+          targetLabel: 'Strava 和 行者',
         ),
         result: FitUploadCoordinatorResult(
           status: FitUploadCoordinatorStatus.failure,
@@ -784,7 +784,7 @@ void main() {
             FitUploadPlatform.xingzhe,
           ],
           hasMissingConfiguration: false,
-          targetLabel: 'Strava 和行者',
+          targetLabel: 'Strava 和 行者',
         ),
         result: FitUploadCoordinatorResult(
           status: FitUploadCoordinatorStatus.partialSuccess,
@@ -914,7 +914,7 @@ void main() {
             FitUploadPlatform.xingzhe,
           ],
           hasMissingConfiguration: false,
-          targetLabel: 'Strava 和行者',
+          targetLabel: 'Strava 和 行者',
         ),
         result: FitUploadCoordinatorResult(
           status: FitUploadCoordinatorStatus.failure,
@@ -1002,7 +1002,7 @@ void main() {
                 FitUploadPlatform.xingzhe,
               ],
               hasMissingConfiguration: false,
-              targetLabel: 'Strava 和行者',
+              targetLabel: 'Strava 和 行者',
             ),
             result: FitUploadCoordinatorResult(
               status: FitUploadCoordinatorStatus.partialSuccess,
@@ -1056,7 +1056,7 @@ void main() {
               FitUploadPlatform.xingzhe,
             ],
             hasMissingConfiguration: false,
-            targetLabel: 'Strava 和行者',
+            targetLabel: 'Strava 和 行者',
           ),
           result: FitUploadCoordinatorResult(
             status: FitUploadCoordinatorStatus.success,
@@ -1119,7 +1119,7 @@ void main() {
               FitUploadPlatform.xingzhe,
             ],
             hasMissingConfiguration: false,
-            targetLabel: 'Strava 和行者',
+            targetLabel: 'Strava 和 行者',
           ),
           result: FitUploadCoordinatorResult(
             status: FitUploadCoordinatorStatus.partialSuccess,

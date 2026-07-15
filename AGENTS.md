@@ -140,6 +140,7 @@ git tag v1.0.18 && git push origin v1.0.18
 - **Timeout errors need context.** Include the last known state (e.g., last workflow value) in timeout messages. "Timeout" alone doesn't tell you if it's still processing or if the state is unrecognized.
 - **Verify by testing, not guessing.** Don't assume API state values, cookie visibility, or response formats. Capture real traffic to confirm.
 - **Get a second review.** Your code has blind spots. A reviewer (subagent or human) catches interface mismatches, missing edge cases, and logic ordering issues you'll miss.
+- **Use agent-browser to capture real API requests.** When reverse-engineering an API, don't rely solely on spec docs or minified JS analysis. Use `agent-browser` to log in, intercept XHR/fetch, and trigger the actual browser flow — the real request often reveals subtle differences (e.g., URL parameter formats, missing date tags) that static analysis misses. Example: Outbase CDN `uri` parameter required `guid+dateTag` suffix, which was only discoverable by capturing the browser's actual upload request.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

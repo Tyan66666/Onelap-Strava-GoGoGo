@@ -10,6 +10,7 @@ import 'dedupe_service.dart';
 import 'fit_coordinate_rewrite_service.dart';
 import 'intervals_icu_client.dart';
 import 'onelap_client.dart';
+import 'outbase_client.dart';
 import 'strava_upload_client.dart';
 import 'state_store.dart';
 import 'xingzhe_client.dart';
@@ -53,12 +54,14 @@ class SyncEngine {
   final StravaUploadClient? stravaClient;
   final XingzheClient? xingzheClient;
   final IntervalsIcuClient? intervalsIcuClient;
+  final OutbaseClient? outbaseClient;
   final StateStore stateStore;
   final bool gcjCorrectionEnabled;
   final FitCoordinateRewriteService? rewriteService;
   final bool uploadToStrava;
   final bool uploadToXingzhe;
   final bool uploadToIntervalsIcu;
+  final bool uploadToOutbase;
   final int downloadConcurrency;
 
   SyncEngine({
@@ -66,12 +69,14 @@ class SyncEngine {
     required this.stravaClient,
     this.xingzheClient,
     this.intervalsIcuClient,
+    this.outbaseClient,
     required this.stateStore,
     this.gcjCorrectionEnabled = false,
     this.rewriteService,
     this.uploadToStrava = true,
     this.uploadToXingzhe = false,
     this.uploadToIntervalsIcu = false,
+    this.uploadToOutbase = false,
     this.downloadConcurrency = 3,
   });
 
@@ -104,6 +109,7 @@ class SyncEngine {
       stravaEnabled: uploadToStrava,
       xingzheEnabled: uploadToXingzhe,
       intervalsIcuEnabled: uploadToIntervalsIcu,
+      outbaseEnabled: uploadToOutbase,
     );
     onProgress?.call(progress);
 
@@ -117,9 +123,11 @@ class SyncEngine {
     int intervalsIcuSuccess = 0,
         intervalsIcuFailed = 0,
         intervalsIcuDeduped = 0;
+    int outbaseSuccess = 0, outbaseFailed = 0, outbaseDeduped = 0;
     final List<FailedActivitySummary> xingzheFailures = [];
     final List<FailedActivitySummary> stravaFailures = [];
     final List<FailedActivitySummary> intervalsIcuFailures = [];
+    final List<FailedActivitySummary> outbaseFailures = [];
 
     // Phase 1: Download all FIT files concurrently
     final pool = ConcurrencyPool<_DownloadResult>(
@@ -272,9 +280,28 @@ class SyncEngine {
             }
           }
 
+          bool skipOutbase = false;
+          if (uploadToOutbase) {
+            final already = await stateStore.isAlreadyUploaded(
+              storedFp,
+              'outbase',
+            );
+            if (already) {
+              skipOutbase = true;
+              preSkipped.add(
+                PlatformSyncResult(
+                  platform: SyncPlatform.outbase,
+                  status: SyncStatus.deduped,
+                  syncedAt: DateTime.now().toIso8601String(),
+                ),
+              );
+            }
+          }
+
           if ((!uploadToStrava || skipStrava) &&
               (!uploadToXingzhe || skipXingzhe) &&
-              (!uploadToIntervalsIcu || skipIntervalsIcu)) {
+              (!uploadToIntervalsIcu || skipIntervalsIcu) &&
+              (!uploadToOutbase || skipOutbase)) {
             // 两个平台都已在之前同步完，本次完全跳过，不计入任何计数
             deduped++;
             syncRecords.add(
@@ -289,6 +316,7 @@ class SyncEngine {
                 uploadedToStrava: uploadToStrava,
                 uploadedToXingzhe: uploadToXingzhe,
                 uploadedToIntervalsIcu: uploadToIntervalsIcu,
+                uploadedToOutbase: uploadToOutbase,
                 platformResults: preSkipped,
               ),
             );
@@ -393,10 +421,29 @@ class SyncEngine {
           }
         }
 
+        bool skipOutbase = false;
+        if (uploadToOutbase) {
+          final already = await stateStore.isAlreadyUploaded(
+            currentFingerprint,
+            'outbase',
+          );
+          if (already) {
+            skipOutbase = true;
+            preSkipped.add(
+              PlatformSyncResult(
+                platform: SyncPlatform.outbase,
+                status: SyncStatus.deduped,
+                syncedAt: DateTime.now().toIso8601String(),
+              ),
+            );
+          }
+        }
+
         // 两个平台都已在之前同步完
         if ((!uploadToStrava || skipStrava) &&
             (!uploadToXingzhe || skipXingzhe) &&
-            (!uploadToIntervalsIcu || skipIntervalsIcu)) {
+            (!uploadToIntervalsIcu || skipIntervalsIcu) &&
+            (!uploadToOutbase || skipOutbase)) {
           deduped++;
           syncRecords.add(
             SyncRecord(
@@ -410,6 +457,7 @@ class SyncEngine {
               uploadedToStrava: uploadToStrava,
               uploadedToXingzhe: uploadToXingzhe,
               uploadedToIntervalsIcu: uploadToIntervalsIcu,
+              uploadedToOutbase: uploadToOutbase,
               platformResults: preSkipped,
             ),
           );
@@ -501,6 +549,23 @@ class SyncEngine {
         );
       }
 
+      final List<_PlatformUploadResult> outbaseResults = [];
+
+      if (uploadToOutbase && outbaseClient != null) {
+        uploadFutures.add(
+          _uploadToOutbase(
+            fingerprint: currentFingerprint,
+            sourceFilename: item.sourceFilename,
+            startTime: item.startTime,
+            sessionMeta: sessionMeta,
+            uploadFile: uploadFile,
+            rewriteFailed: rewriteFailed,
+            rewriteError: rewriteError,
+            now: now,
+          ).then((r) => outbaseResults.add(r)),
+        );
+      }
+
       // Run all platform uploads in parallel.
       // Each helper catches all exceptions internally, so Future.wait
       // never sees a rejected future — this is critical: if one helper
@@ -543,6 +608,18 @@ class SyncEngine {
         failureReasons.addAll(r.failureReasons);
       }
 
+      // Aggregate Outbase results
+      for (final r in outbaseResults) {
+        platformResults.addAll(r.platformResults);
+        platformsUploaded += r.uploaded;
+        platformsFailed += r.failed;
+        outbaseSuccess += r.success;
+        outbaseFailed += r.failed;
+        outbaseDeduped += r.deduped;
+        outbaseFailures.addAll(r.failures);
+        failureReasons.addAll(r.failureReasons);
+      }
+
       final stravaInc = stravaResults.fold<int>(
         0,
         (sum, r) => sum + r.success + r.deduped,
@@ -555,10 +632,15 @@ class SyncEngine {
         0,
         (sum, r) => sum + r.success + r.deduped,
       );
+      final outbaseInc = outbaseResults.fold<int>(
+        0,
+        (sum, r) => sum + r.success + r.deduped,
+      );
       progress = progress.copyWith(
         stravaUploaded: progress.stravaUploaded + stravaInc,
         xingzheUploaded: progress.xingzheUploaded + xingzheInc,
         intervalsIcuUploaded: progress.intervalsIcuUploaded + intervalsIcuInc,
+        outbaseUploaded: progress.outbaseUploaded + outbaseInc,
       );
       processedCount++;
       progress = progress.copyWith(processed: processedCount);
@@ -587,6 +669,7 @@ class SyncEngine {
           uploadedToStrava: uploadToStrava,
           uploadedToXingzhe: uploadToXingzhe,
           uploadedToIntervalsIcu: uploadToIntervalsIcu,
+          uploadedToOutbase: uploadToOutbase,
           platformResults: platformResults,
         ),
       );
@@ -630,6 +713,10 @@ class SyncEngine {
       intervalsIcuFailed: intervalsIcuFailed,
       intervalsIcuDeduped: intervalsIcuDeduped,
       intervalsIcuFailures: intervalsIcuFailures,
+      outbaseSuccess: outbaseSuccess,
+      outbaseFailed: outbaseFailed,
+      outbaseDeduped: outbaseDeduped,
+      outbaseFailures: outbaseFailures,
       syncedAt: DateTime.now(),
     );
   }
@@ -679,6 +766,7 @@ class SyncEngine {
       uploadedToStrava: uploadToStrava,
       uploadedToXingzhe: uploadToXingzhe,
       uploadedToIntervalsIcu: uploadToIntervalsIcu,
+      uploadedToOutbase: uploadToOutbase,
       platformResults: [
         if (uploadToStrava)
           PlatformSyncResult(
@@ -697,6 +785,13 @@ class SyncEngine {
         if (uploadToIntervalsIcu)
           PlatformSyncResult(
             platform: SyncPlatform.intervalsIcu,
+            status: SyncStatus.failed,
+            errorMessage: '[$phase] $err',
+            syncedAt: now,
+          ),
+        if (uploadToOutbase)
+          PlatformSyncResult(
+            platform: SyncPlatform.outbase,
             status: SyncStatus.failed,
             errorMessage: '[$phase] $err',
             syncedAt: now,
@@ -1117,6 +1212,117 @@ class SyncEngine {
       deduped: iDeduped,
       failures: iFailures,
       failureReasons: iFailureReasons,
+    );
+  }
+
+  Future<_PlatformUploadResult> _uploadToOutbase({
+    required String fingerprint,
+    required String sourceFilename,
+    required String startTime,
+    required FitSessionMeta sessionMeta,
+    required File uploadFile,
+    required bool rewriteFailed,
+    required String? rewriteError,
+    required String now,
+  }) async {
+    final platformResults = <PlatformSyncResult>[];
+    int uploaded = 0, failed = 0;
+    int oSuccess = 0, oDeduped = 0;
+    final List<FailedActivitySummary> oFailures = [];
+    final List<String> oFailureReasons = [];
+
+    final skip = await stateStore.isAlreadyUploaded(fingerprint, 'outbase');
+    if (skip) {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.outbase,
+          status: SyncStatus.deduped,
+          syncedAt: now,
+        ),
+      );
+      oDeduped++;
+    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+      try {
+        final result = await outbaseClient!.uploadFit(uploadFile);
+        if (result.success) {
+          await stateStore.markPlatformSynced(fingerprint, 'outbase', null);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.outbase,
+              status: SyncStatus.success,
+              syncedAt: now,
+            ),
+          );
+          uploaded++;
+          oSuccess++;
+        } else if (result.alreadyUploaded) {
+          await stateStore.markPlatformSynced(fingerprint, 'outbase', null);
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.outbase,
+              status: SyncStatus.deduped,
+              syncedAt: now,
+            ),
+          );
+          oDeduped++;
+        } else {
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.outbase,
+              status: SyncStatus.failed,
+              errorMessage: result.message ?? 'Outbase upload failed',
+              syncedAt: now,
+            ),
+          );
+          failed++;
+          oFailures.add(
+            _failSummary(
+              fingerprint,
+              startTime,
+              sessionMeta,
+              result.message ?? 'Outbase upload failed',
+            ),
+          );
+          oFailureReasons.add(
+            'Outbase 上传失败 ($sourceFilename): ${result.message}',
+          );
+        }
+      } catch (e) {
+        platformResults.add(
+          PlatformSyncResult(
+            platform: SyncPlatform.outbase,
+            status: SyncStatus.failed,
+            errorMessage: '$e',
+            syncedAt: now,
+          ),
+        );
+        failed++;
+        oFailures.add(_failSummary(fingerprint, startTime, sessionMeta, '$e'));
+        oFailureReasons.add('Outbase 上传失败 ($sourceFilename): $e');
+      }
+    } else {
+      platformResults.add(
+        PlatformSyncResult(
+          platform: SyncPlatform.outbase,
+          status: SyncStatus.failed,
+          errorMessage: '坐标转换失败: $rewriteError',
+          syncedAt: now,
+        ),
+      );
+      failed++;
+      oFailures.add(
+        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
+      );
+    }
+
+    return _PlatformUploadResult(
+      platformResults: platformResults,
+      uploaded: uploaded,
+      failed: failed,
+      success: oSuccess,
+      deduped: oDeduped,
+      failures: oFailures,
+      failureReasons: oFailureReasons,
     );
   }
 }

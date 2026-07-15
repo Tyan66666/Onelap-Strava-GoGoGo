@@ -59,6 +59,9 @@ class SettingsService {
   static const keyIntervalsIcuAthleteId = 'INTERVALS_ICU_ATHLETE_ID';
   static const keyIntervalsIcuApiKey = 'INTERVALS_ICU_API_KEY';
   static const keyUploadToIntervalsIcu = 'UPLOAD_TO_INTERVALS_ICU';
+  static const keyOutbaseSessionId = 'OUTBASE_SESSION_ID';
+  static const keyUploadToOutbase = 'UPLOAD_TO_OUTBASE';
+  static const keyOutbaseLoginTime = 'OUTBASE_LOGIN_TIME';
 
   static const allKeys = [
     keyOneLapUsername,
@@ -80,6 +83,9 @@ class SettingsService {
     keyIntervalsIcuAthleteId,
     keyIntervalsIcuApiKey,
     keyUploadToIntervalsIcu,
+    keyOutbaseSessionId,
+    keyUploadToOutbase,
+    keyOutbaseLoginTime,
   ];
 
   Future<Map<String, String>> loadSettings() async {

@@ -8,6 +8,8 @@ class SyncProgress {
   final bool xingzheEnabled;
   final int intervalsIcuUploaded;
   final bool intervalsIcuEnabled;
+  final int outbaseUploaded;
+  final bool outbaseEnabled;
 
   const SyncProgress({
     this.totalActivities = 0,
@@ -19,6 +21,8 @@ class SyncProgress {
     this.xingzheEnabled = false,
     this.intervalsIcuUploaded = 0,
     this.intervalsIcuEnabled = false,
+    this.outbaseUploaded = 0,
+    this.outbaseEnabled = false,
   });
 
   SyncProgress copyWith({
@@ -31,6 +35,8 @@ class SyncProgress {
     bool? xingzheEnabled,
     int? intervalsIcuUploaded,
     bool? intervalsIcuEnabled,
+    int? outbaseUploaded,
+    bool? outbaseEnabled,
   }) {
     return SyncProgress(
       totalActivities: totalActivities ?? this.totalActivities,
@@ -42,6 +48,8 @@ class SyncProgress {
       xingzheEnabled: xingzheEnabled ?? this.xingzheEnabled,
       intervalsIcuUploaded: intervalsIcuUploaded ?? this.intervalsIcuUploaded,
       intervalsIcuEnabled: intervalsIcuEnabled ?? this.intervalsIcuEnabled,
+      outbaseUploaded: outbaseUploaded ?? this.outbaseUploaded,
+      outbaseEnabled: outbaseEnabled ?? this.outbaseEnabled,
     );
   }
 
@@ -58,7 +66,9 @@ class SyncProgress {
           stravaEnabled == other.stravaEnabled &&
           xingzheEnabled == other.xingzheEnabled &&
           intervalsIcuUploaded == other.intervalsIcuUploaded &&
-          intervalsIcuEnabled == other.intervalsIcuEnabled;
+          intervalsIcuEnabled == other.intervalsIcuEnabled &&
+          outbaseUploaded == other.outbaseUploaded &&
+          outbaseEnabled == other.outbaseEnabled;
 
   @override
   int get hashCode => Object.hash(
@@ -71,6 +81,8 @@ class SyncProgress {
     xingzheEnabled,
     intervalsIcuUploaded,
     intervalsIcuEnabled,
+    outbaseUploaded,
+    outbaseEnabled,
   );
 
   @override
@@ -78,5 +90,6 @@ class SyncProgress {
       'SyncProgress(total: $totalActivities, processed: $processed, '
       'uploadTotal: $uploadTotal, strava: $stravaUploaded/$uploadTotal, '
       'xingzhe: $xingzheUploaded/$uploadTotal, '
-      'intervalsIcu: $intervalsIcuUploaded/$uploadTotal)';
+      'intervalsIcu: $intervalsIcuUploaded/$uploadTotal, '
+      'outbase: $outbaseUploaded/$uploadTotal)';
 }

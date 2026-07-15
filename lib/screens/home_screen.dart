@@ -17,6 +17,7 @@ import '../services/strava_web_client.dart';
 import '../services/strava_web_sync_adapter.dart';
 import '../services/xingzhe_client.dart';
 import '../services/intervals_icu_client.dart';
+import '../services/outbase_client.dart';
 import '../services/sync_engine.dart';
 import 'settings_screen.dart';
 import 'sync_history_screen.dart';
@@ -91,6 +92,20 @@ class _SyncProgressDialog extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               '${progress.intervalsIcuUploaded}/${progress.uploadTotal}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+          if (progress.outbaseEnabled && progress.uploadTotal > 0) ...[
+            const Text('上传至 Outbase', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            LinearProgressIndicator(
+              value: progress.uploadTotal > 0
+                  ? progress.outbaseUploaded / progress.uploadTotal
+                  : 0,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${progress.outbaseUploaded}/${progress.uploadTotal}',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -258,6 +273,10 @@ class _HomeScreenState extends State<HomeScreen> {
           settings[SettingsService.keyIntervalsIcuAthleteId] ?? '';
       final intervalsIcuApiKey =
           settings[SettingsService.keyIntervalsIcuApiKey] ?? '';
+      final bool uploadToOutbase =
+          settings[SettingsService.keyUploadToOutbase] == 'true';
+      final outbaseSessionId =
+          settings[SettingsService.keyOutbaseSessionId] ?? '';
 
       if (username.isEmpty || password.isEmpty) {
         if (!mounted) return;
@@ -268,7 +287,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      if (!uploadToStrava && !uploadToXingzhe && !uploadToIntervalsIcu) {
+      if (!uploadToStrava &&
+          !uploadToXingzhe &&
+          !uploadToIntervalsIcu &&
+          !uploadToOutbase) {
         if (!mounted) return;
         setState(() {
           _error = '请至少选择一个上传平台';
@@ -308,6 +330,15 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!mounted) return;
         setState(() {
           _error = '请先在设置中填写 Intervals.icu 凭证';
+          _syncing = false;
+        });
+        return;
+      }
+
+      if (uploadToOutbase && outbaseSessionId.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _error = '请先在设置中登录 Outbase';
           _syncing = false;
         });
         return;
@@ -365,16 +396,23 @@ class _HomeScreenState extends State<HomeScreen> {
           apiKey: intervalsIcuApiKey,
         );
       }
+      OutbaseClient? outbase;
+      if (uploadToOutbase) {
+        debugPrint('Outbase sync: sessionId=$outbaseSessionId (length=${outbaseSessionId.length})');
+        outbase = OutbaseClient(sessionId: outbaseSessionId);
+      }
       final engine = SyncEngine(
         oneLapClient: oneLap,
         stravaClient: strava,
         xingzheClient: xingzhe,
         intervalsIcuClient: intervalsIcu,
+        outbaseClient: outbase,
         stateStore: _stateStore,
         gcjCorrectionEnabled: gcjCorrectionEnabled,
         uploadToStrava: uploadToStrava,
         uploadToXingzhe: uploadToXingzhe,
         uploadToIntervalsIcu: uploadToIntervalsIcu,
+        uploadToOutbase: uploadToOutbase,
         rewriteService: FitCoordinateRewriteService(),
       );
 
@@ -383,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
           stravaEnabled: uploadToStrava,
           xingzheEnabled: uploadToXingzhe,
           intervalsIcuEnabled: uploadToIntervalsIcu,
+          outbaseEnabled: uploadToOutbase,
         ),
       );
 
@@ -463,6 +502,11 @@ class _HomeScreenState extends State<HomeScreen> {
         banner.intervalsIcuFailed > 0 ||
         banner.intervalsIcuDeduped > 0 ||
         banner.intervalsIcuFailures.isNotEmpty;
+    final hasOutbase =
+        banner.outbaseSuccess > 0 ||
+        banner.outbaseFailed > 0 ||
+        banner.outbaseDeduped > 0 ||
+        banner.outbaseFailures.isNotEmpty;
 
     showDialog<void>(
       context: context,
@@ -602,7 +646,48 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 12),
               ],
 
-              if (!hasXingzhe && !hasStrava && !hasIntervalsIcu)
+              // Outbase
+              if (hasOutbase) ...[
+                _sectionTitle('Outbase'),
+                if (banner.outbaseSuccess > 0 ||
+                    banner.outbaseFailed > 0 ||
+                    banner.outbaseDeduped > 0)
+                  Row(
+                    children: [
+                      if (banner.outbaseSuccess > 0)
+                        _chip('成功 ${banner.outbaseSuccess}', Colors.green),
+                      if (banner.outbaseSuccess > 0 &&
+                          (banner.outbaseFailed > 0 ||
+                              banner.outbaseDeduped > 0))
+                        const SizedBox(width: 8),
+                      if (banner.outbaseFailed > 0)
+                        _chip('失败 ${banner.outbaseFailed}', Colors.red),
+                      if (banner.outbaseFailed > 0 && banner.outbaseDeduped > 0)
+                        const SizedBox(width: 8),
+                      if (banner.outbaseDeduped > 0)
+                        _chip('跳过 ${banner.outbaseDeduped}', Colors.white),
+                    ],
+                  ),
+                if (banner.outbaseFailures.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  const Text(
+                    '失败记录：',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  ...banner.outbaseFailures.map(
+                    (f) => Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '  【${f.displayText}】${f.error ?? ''}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+              ],
+
+              if (!hasXingzhe && !hasStrava && !hasIntervalsIcu && !hasOutbase)
                 const Text('暂无详细记录'),
             ],
           ),
@@ -753,13 +838,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         banner.intervalsIcuFailed,
                         banner.intervalsIcuDeduped,
                       ),
+                    if (banner.outbaseSuccess > 0 ||
+                        banner.outbaseFailed > 0 ||
+                        banner.outbaseDeduped > 0)
+                      _platformChip(
+                        'Outbase',
+                        banner.outbaseSuccess,
+                        banner.outbaseFailed,
+                        banner.outbaseDeduped,
+                      ),
                   ],
                 ),
 
                 // 失败记录展示（只显示前两条）
                 if (banner.xingzheFailures.isNotEmpty ||
                     banner.stravaFailures.isNotEmpty ||
-                    banner.intervalsIcuFailures.isNotEmpty) ...[
+                    banner.intervalsIcuFailures.isNotEmpty ||
+                    banner.outbaseFailures.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   ...banner.xingzheFailures
                       .take(2)
@@ -770,6 +865,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ...banner.intervalsIcuFailures
                       .take(2)
                       .map((f) => _failureLine('Intervals.icu', f)),
+                  ...banner.outbaseFailures
+                      .take(2)
+                      .map((f) => _failureLine('Outbase', f)),
                 ],
               ],
             ),

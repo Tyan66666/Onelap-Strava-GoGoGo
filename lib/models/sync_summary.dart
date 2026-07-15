@@ -63,6 +63,11 @@ class SyncSummary {
   final int intervalsIcuDeduped;
   final List<FailedActivitySummary> intervalsIcuFailures;
 
+  final int outbaseSuccess;
+  final int outbaseFailed;
+  final int outbaseDeduped;
+  final List<FailedActivitySummary> outbaseFailures;
+
   /// 本次同步运行时间戳（用于 banner 记录）
   final DateTime? syncedAt;
 
@@ -85,6 +90,10 @@ class SyncSummary {
     this.intervalsIcuFailed = 0,
     this.intervalsIcuDeduped = 0,
     this.intervalsIcuFailures = const [],
+    this.outbaseSuccess = 0,
+    this.outbaseFailed = 0,
+    this.outbaseDeduped = 0,
+    this.outbaseFailures = const [],
     this.syncedAt,
   });
 

@@ -67,8 +67,9 @@ void main() {
 
       final jsonStr = await configService.exportConfig(appVersion: '1.0.0');
       final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final sync = (json['settings'] as Map<String, dynamic>)['sync']
-          as Map<String, dynamic>;
+      final sync =
+          (json['settings'] as Map<String, dynamic>)['sync']
+              as Map<String, dynamic>;
 
       expect(sync['lookbackDays'], 7);
       expect(sync['gcjCorrectionEnabled'], true);
@@ -132,10 +133,7 @@ void main() {
         'appVersion': '1.0.0',
         'settings': <String, dynamic>{},
       });
-      expect(
-        () => configService.importConfig(json),
-        throwsFormatException,
-      );
+      expect(() => configService.importConfig(json), throwsFormatException);
     });
   });
 }

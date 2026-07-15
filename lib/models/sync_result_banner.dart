@@ -30,6 +30,12 @@ class SyncResultBanner {
   final int intervalsIcuDeduped;
   final List<FailedActivitySummary> intervalsIcuFailures;
 
+  // Outbase
+  final int outbaseSuccess;
+  final int outbaseFailed;
+  final int outbaseDeduped;
+  final List<FailedActivitySummary> outbaseFailures;
+
   const SyncResultBanner({
     required this.id,
     required this.syncedAt,
@@ -50,6 +56,10 @@ class SyncResultBanner {
     required this.intervalsIcuFailed,
     required this.intervalsIcuDeduped,
     required this.intervalsIcuFailures,
+    this.outbaseSuccess = 0,
+    this.outbaseFailed = 0,
+    this.outbaseDeduped = 0,
+    this.outbaseFailures = const [],
   });
 
   factory SyncResultBanner.fromSyncSummary(SyncSummary s) {
@@ -74,6 +84,10 @@ class SyncResultBanner {
       intervalsIcuFailed: s.intervalsIcuFailed,
       intervalsIcuDeduped: s.intervalsIcuDeduped,
       intervalsIcuFailures: s.intervalsIcuFailures,
+      outbaseSuccess: s.outbaseSuccess,
+      outbaseFailed: s.outbaseFailed,
+      outbaseDeduped: s.outbaseDeduped,
+      outbaseFailures: s.outbaseFailures,
     );
   }
 
@@ -99,6 +113,10 @@ class SyncResultBanner {
     'intervalsIcuFailures': intervalsIcuFailures
         .map((f) => f.toJson())
         .toList(),
+    'outbaseSuccess': outbaseSuccess,
+    'outbaseFailed': outbaseFailed,
+    'outbaseDeduped': outbaseDeduped,
+    'outbaseFailures': outbaseFailures.map((f) => f.toJson()).toList(),
   };
 
   factory SyncResultBanner.fromJson(Map<String, dynamic> json) {
@@ -143,6 +161,17 @@ class SyncResultBanner {
               )
               .toList() ??
           [],
+      outbaseSuccess: json['outbaseSuccess'] as int? ?? 0,
+      outbaseFailed: json['outbaseFailed'] as int? ?? 0,
+      outbaseDeduped: json['outbaseDeduped'] as int? ?? 0,
+      outbaseFailures:
+          (json['outbaseFailures'] as List?)
+              ?.map(
+                (e) =>
+                    FailedActivitySummary.fromJson(e as Map<String, dynamic>),
+              )
+              .toList() ??
+          [],
     );
   }
 
@@ -173,6 +202,9 @@ class SyncResultBanner {
       ...intervalsIcuFailures.map(
         (f) => 'Intervals.icu失败: ${f.displayText} ${f.error ?? ''}',
       ),
+      ...outbaseFailures.map(
+        (f) => 'Outbase失败: ${f.displayText} ${f.error ?? ''}',
+      ),
     ],
     xingzheSuccess: xingzheSuccess,
     xingzheFailed: xingzheFailed,
@@ -186,5 +218,9 @@ class SyncResultBanner {
     intervalsIcuFailed: intervalsIcuFailed,
     intervalsIcuDeduped: intervalsIcuDeduped,
     intervalsIcuFailures: intervalsIcuFailures,
+    outbaseSuccess: outbaseSuccess,
+    outbaseFailed: outbaseFailed,
+    outbaseDeduped: outbaseDeduped,
+    outbaseFailures: outbaseFailures,
   );
 }

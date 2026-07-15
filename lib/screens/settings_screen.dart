@@ -9,6 +9,7 @@ import '../services/config_service.dart';
 import '../services/onelap_client.dart';
 import '../services/settings_service.dart';
 import 'intervals_icu_settings_screen.dart';
+import 'outbase_settings_screen.dart';
 import 'strava_settings_screen.dart';
 import 'xingzhe_settings_screen.dart';
 
@@ -43,15 +44,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _uploadToStrava = true;
   bool _uploadToXingzhe = false;
   bool _uploadToIntervalsIcu = false;
+  bool _uploadToOutbase = false;
   bool _savingUploadToStrava = false;
   bool _savingUploadToXingzhe = false;
   bool _savingUploadToIntervalsIcu = false;
+  bool _savingUploadToOutbase = false;
   bool? _pendingUploadToStrava;
   bool? _pendingUploadToXingzhe;
   bool? _pendingUploadToIntervalsIcu;
+  bool? _pendingUploadToOutbase;
   bool _confirmedUploadToStrava = true;
   bool _confirmedUploadToXingzhe = false;
   bool _confirmedUploadToIntervalsIcu = false;
+  bool _confirmedUploadToOutbase = false;
 
   late final ConfigService _configService;
   bool _exporting = false;
@@ -100,9 +105,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _uploadToXingzhe = values[SettingsService.keyUploadToXingzhe] == 'true';
       _uploadToIntervalsIcu =
           values[SettingsService.keyUploadToIntervalsIcu] == 'true';
+      _uploadToOutbase = values[SettingsService.keyUploadToOutbase] == 'true';
       _confirmedUploadToStrava = _uploadToStrava;
       _confirmedUploadToXingzhe = _uploadToXingzhe;
       _confirmedUploadToIntervalsIcu = _uploadToIntervalsIcu;
+      _confirmedUploadToOutbase = _uploadToOutbase;
       _loading = false;
     });
   }
@@ -290,8 +297,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required bool strava,
     required bool xingzhe,
     required bool intervalsIcu,
+    required bool outbase,
   }) {
-    return strava || xingzhe || intervalsIcu;
+    return strava || xingzhe || intervalsIcu || outbase;
   }
 
   Future<void> _toggleUploadToStrava(bool value) async {
@@ -300,6 +308,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           strava: false,
           xingzhe: _uploadToXingzhe,
           intervalsIcu: _uploadToIntervalsIcu,
+          outbase: _uploadToOutbase,
         )) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -355,6 +364,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           strava: _uploadToStrava,
           xingzhe: false,
           intervalsIcu: _uploadToIntervalsIcu,
+          outbase: _uploadToOutbase,
         )) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -410,6 +420,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           strava: _uploadToStrava,
           xingzhe: _uploadToXingzhe,
           intervalsIcu: false,
+          outbase: _uploadToOutbase,
         )) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -454,6 +465,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final bool? pendingValue = _pendingUploadToIntervalsIcu;
       if (pendingValue == null || pendingValue == valueToPersist) {
         _savingUploadToIntervalsIcu = false;
+        return;
+      }
+
+      valueToPersist = pendingValue;
+    }
+  }
+
+  Future<void> _toggleUploadToOutbase(bool value) async {
+    if (!value &&
+        !_otherPlatformsEnabled(
+          strava: _uploadToStrava,
+          xingzhe: _uploadToXingzhe,
+          intervalsIcu: _uploadToIntervalsIcu,
+          outbase: false,
+        )) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('至少需要选择一个上传平台')));
+      }
+      return;
+    }
+
+    setState(() => _uploadToOutbase = value);
+
+    if (_savingUploadToOutbase) {
+      _pendingUploadToOutbase = value;
+      return;
+    }
+
+    _savingUploadToOutbase = true;
+    bool valueToPersist = value;
+
+    while (true) {
+      _pendingUploadToOutbase = null;
+
+      try {
+        await _settingsService.saveSettings({
+          SettingsService.keyUploadToOutbase: valueToPersist.toString(),
+        });
+        _confirmedUploadToOutbase = valueToPersist;
+      } catch (e) {
+        _savingUploadToOutbase = false;
+        _pendingUploadToOutbase = null;
+        if (mounted) {
+          setState(() => _uploadToOutbase = _confirmedUploadToOutbase);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('设置保存失败: $e')));
+        }
+        return;
+      }
+
+      final bool? pendingValue = _pendingUploadToOutbase;
+      if (pendingValue == null || pendingValue == valueToPersist) {
+        _savingUploadToOutbase = false;
         return;
       }
 
@@ -731,6 +798,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   builder: (_) => IntervalsIcuSettingsScreen(
                     settingsService: _settingsService,
                   ),
+                ),
+              );
+            },
+          ),
+          _buildPlatformCard(
+            title: 'Outbase',
+            value: _uploadToOutbase,
+            onChanged: _toggleUploadToOutbase,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OutbaseSettingsScreen(),
                 ),
               );
             },
