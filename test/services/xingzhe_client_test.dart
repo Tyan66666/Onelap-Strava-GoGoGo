@@ -267,6 +267,46 @@ void main() {
       );
     });
 
+    test(
+      'retries 5xx (e.g. HTTP 502) and throws XingzheRetriableError',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'xingzhe-502-',
+        );
+        final File file = File('${tempDir.path}/test.fit');
+        await file.writeAsBytes(const <int>[1, 2, 3]);
+        addTearDown(() async {
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
+
+        int callCount = 0;
+        final Dio dio = Dio();
+        dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
+          callCount++;
+          return ResponseBody.fromString(
+            '<html>502 Bad Gateway</html>',
+            502,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>['text/html'],
+            },
+          );
+        });
+
+        final XingzheClient client = XingzheClient(
+          username: 'user',
+          password: 'pass',
+          dio: dio,
+        );
+
+        await expectLater(
+          () => client.uploadFit(file, retries: 2),
+          throwsA(isA<XingzheRetriableError>()),
+        );
+        // 初次 + 重试次数，应被调用 retries 次
+        expect(callCount, 2);
+      },
+    );
+
     test('throws XingzhePermanentError when response is not a Map', () async {
       final Dio dio = Dio();
       dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {

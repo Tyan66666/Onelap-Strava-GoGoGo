@@ -316,11 +316,17 @@ WpJmn7JfXB4HTMWjPVoyRZmSYjW4L8GrWmh51Qj7DwpTADadF3aq04o+s1b8LXJa
       }
 
       try {
-        if (response.statusCode == 500) {
-          // 重新登录
-          await login(username: username, password: password, dio: _dio);
+        // 5xx 是服务端/网关瞬时错误（含 502 Bad Gateway、503、504 等）。
+        // 注意：本请求使用 validateStatus 始终返回 true，Dio 不会为 5xx
+        // 抛出 DioException，因此重试逻辑必须在此处理，而不是依赖上面的
+        // on DioException 分支（那里的 status >= 500 重试实际上已被绕过）。
+        if (response.statusCode != null && response.statusCode! >= 500) {
+          // 仅 500 可能是会话过期，尝试重新登录以刷新 session。
+          if (response.statusCode == 500) {
+            await login(username: username, password: password, dio: _dio);
+          }
           if (attempt < retries) {
-            await Future.delayed(const Duration(seconds: 1));
+            await Future.delayed(const Duration(seconds: 2));
             continue;
           }
           throw XingzheRetriableError(
