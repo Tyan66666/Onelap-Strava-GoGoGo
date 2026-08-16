@@ -38,6 +38,16 @@ ResponseBody _jsonResponse(Map<String, dynamic> data, {int status = 200}) {
   );
 }
 
+/// Assets covering every platform the checker matches, so "has update" style
+/// assertions hold on any CI runner (macOS, Linux, Windows, Android).
+List<Map<String, dynamic>> _allPlatformAssets() => [
+  {'name': 'app-release.apk'},
+  {'name': 'app-release.dmg'},
+  {'name': 'app.ipa'},
+  {'name': 'app-release.AppImage'},
+  {'name': 'app-setup.exe'},
+];
+
 void main() {
   group('UpdateChecker.compareVersions', () {
     test('returns 1 when latest is newer (patch)', () {
@@ -71,10 +81,7 @@ void main() {
         return _jsonResponse({
           'tag_name': 'v99.0.0',
           'body': '## What is new\n- Feature A',
-          'assets': [
-            {'name': 'app-release.apk'},
-            {'name': 'app-release.dmg'},
-          ],
+          'assets': _allPlatformAssets(),
         });
       });
 
@@ -121,9 +128,7 @@ void main() {
         return _jsonResponse({
           'tag_name': 'v99.0.0',
           'body': '',
-          'assets': [
-            {'name': 'app-release.dmg'},
-          ],
+          'assets': _allPlatformAssets(),
         });
       });
 
@@ -170,9 +175,7 @@ void main() {
         return _jsonResponse({
           'tag_name': '99.0.0',
           'body': '',
-          'assets': [
-            {'name': 'app-release.dmg'},
-          ],
+          'assets': _allPlatformAssets(),
         });
       });
 
@@ -189,9 +192,7 @@ void main() {
       final dio = _mockDio((options) async {
         return _jsonResponse({
           'tag_name': 'v99.0.0',
-          'assets': [
-            {'name': 'app-release.dmg'},
-          ],
+          'assets': _allPlatformAssets(),
         });
       });
 
