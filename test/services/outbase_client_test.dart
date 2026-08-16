@@ -45,7 +45,7 @@ void main() {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
           callCount++;
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             // CDN upload
             return ResponseBody.fromString(
               jsonEncode({'message': 'SUCCESS', 'data': {}}),
@@ -79,7 +79,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'SUCCESS', 'data': {}}),
               200,
@@ -145,7 +145,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'SUCCESS', 'data': {}}),
               200,
@@ -172,7 +172,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'SUCCESS', 'data': {}}),
               200,
@@ -199,7 +199,7 @@ void main() {
     test('throws OutbasePermanentError on 401 session expired', () async {
       final dio = Dio();
       dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-        if (options.uri.toString().contains('resource/upload')) {
+        if (options.uri.toString().contains('resource/h5/upload')) {
           return ResponseBody.fromString(
             jsonEncode({'message': 'SUCCESS', 'data': {}}),
             200,
@@ -225,7 +225,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             // CDN returns 400 with "already exists" message
             return ResponseBody.fromString(
               jsonEncode({'message': 'file already exists'}),
@@ -258,7 +258,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'file already exists'}),
               400,
@@ -290,7 +290,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'Invalid file format'}),
               400,
@@ -322,7 +322,7 @@ void main() {
       () async {
         final dio = Dio();
         dio.httpClientAdapter = _FakeHttpClientAdapter((options) async {
-          if (options.uri.toString().contains('resource/upload')) {
+          if (options.uri.toString().contains('resource/h5/upload')) {
             return ResponseBody.fromString(
               jsonEncode({'message': 'SUCCESS', 'data': {}}),
               200,

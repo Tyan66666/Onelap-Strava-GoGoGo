@@ -230,7 +230,7 @@ class OutbaseClient {
     final guidHex = guid.replaceAll('-', '');
     final prefix1 = guidHex.substring(0, 2);
     final prefix2 = guidHex.substring(2, 4);
-    return 'https://melon-gateway.immomo.com/zeusfit/resource/upload'
+    return 'https://melon-gateway.immomo.com/zeusfit/resource/h5/upload'
         '?source=zeusfit'
         '&id=$guid$dateTag'
         '&uri=/resource/$prefix1/$prefix2/$guid$dateTag.fit'
