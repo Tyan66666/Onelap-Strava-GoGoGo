@@ -139,7 +139,7 @@ void main() {
 
   Finder gcjCorrectionSwitch() {
     return find.descendant(
-      of: find.widgetWithText(SwitchListTile, '上传前将 GCJ-02 转为 WGS84'),
+      of: find.widgetWithText(SwitchListTile, 'Strava 上传前将 GCJ-02 转为 WGS84'),
       matching: find.byType(Switch),
     );
   }
@@ -446,8 +446,11 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: SettingsScreen()));
     await tester.pumpAndSettle();
 
-    expect(find.text('上传前将 GCJ-02 转为 WGS84'), findsOneWidget);
-    expect(find.text('仅在来源轨迹偏移且确认使用 GCJ-02 时开启'), findsOneWidget);
+    expect(find.text('Strava 上传前将 GCJ-02 转为 WGS84'), findsOneWidget);
+    expect(
+      find.text('仅对 Strava 生效；行者、Intervals.icu、Outbase 上传原始文件'),
+      findsOneWidget,
+    );
 
     final Switch rewriteSwitch = tester.widget<Switch>(gcjCorrectionSwitch());
     expect(rewriteSwitch.value, isTrue);
