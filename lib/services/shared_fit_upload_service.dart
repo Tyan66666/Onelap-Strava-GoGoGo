@@ -279,12 +279,23 @@ class SharedFitUploadService {
   }
 
   Future<void> _deleteTempUploadFile(File file) async {
+    // The rewritten file always lives in a dedicated temp directory created by
+    // FitCoordinateRewriteService (fit-coordinate-rewrite-*), so remove both
+    // the file and its parent directory (mirrors sync_engine cleanup).
     try {
       if (await file.exists()) {
         await file.delete();
       }
     } on FileSystemException {
       // Best-effort cleanup for rewritten temp files.
+    }
+    try {
+      final Directory parent = file.parent;
+      if (await parent.exists()) {
+        await parent.delete();
+      }
+    } on FileSystemException {
+      // Best-effort cleanup for the rewrite temp directory.
     }
   }
 

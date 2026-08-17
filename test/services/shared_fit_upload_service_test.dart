@@ -656,7 +656,7 @@ void main() {
         expect(result.status, SharedFitUploadStatus.success);
         expect(await fitFile.exists(), isTrue);
         expect(await rewrittenFile.exists(), isFalse);
-        expect(await rewrittenDir.exists(), isTrue);
+        expect(await rewrittenDir.exists(), isFalse);
       },
     );
 
