@@ -38,6 +38,16 @@ class UpdateChecker {
               lower.endsWith('.zip'))) {
         return true;
       }
+      if (Platform.isLinux &&
+          (lower.endsWith('.appimage') ||
+              lower.endsWith('.deb') ||
+              lower.endsWith('.tar.gz'))) {
+        return true;
+      }
+      if (Platform.isWindows &&
+          (lower.endsWith('.exe') || lower.endsWith('.msi'))) {
+        return true;
+      }
     }
     return false;
   }
