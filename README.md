@@ -14,7 +14,7 @@
 - 支持从系统分享或“打开方式”接收 FIT 文件后上传到 Strava / Import FIT files from system share or open-in flows, then upload to Strava
 - 支持上传到 Strava、行者、Intervals.icu 和 Outbase，可单独开启或同时开启 / Upload to Strava, Xingzhe, Intervals.icu, and Outbase, either individually or together
 - 各平台独立去重，避免重复上传 / Per-platform deduplication to avoid duplicate uploads
-- 可选在上传前将 GCJ-02 轨迹转换为 WGS84，适用于自动同步和分享上传 / Optionally convert GCJ-02 tracks to WGS84 before upload for both sync and shared FIT uploads
+- 可选在 Strava 上传前将 GCJ-02 轨迹转换为 WGS84，仅对 Strava 生效 / Optionally convert GCJ-02 tracks to WGS84 before Strava upload; applies to Strava only
 - 设置同步天数（默认 3 天）/ Configurable lookback days (default 3)
 - 内置 Strava OAuth 授权，无需手动填写 Token / Built-in Strava OAuth flow
 - 首页展示最近同步结果 Banner，可展开查看详情 / Recent sync result banners on the home screen with expandable details
@@ -93,9 +93,9 @@ Strava 上传支持 API 和网页两种模式：API 模式需要配置 Client ID
 
 *Strava upload supports API and Web modes: API mode requires Client ID/Secret, Web mode only needs a Strava account login. Outbase requires WebView login to obtain a sessionId.*
 
-如果你的来源轨迹使用 GCJ-02，或者导入到 Strava 后路线明显偏移，可以在设置中开启「上传前将 GCJ-02 转为 WGS84」。该选项同时作用于顽鹿自动同步和系统分享上传。
+如果你的来源轨迹使用 GCJ-02，或者导入到 Strava 后路线明显偏移，可以在设置中开启「Strava 上传前将 GCJ-02 转为 WGS84」。该选项仅对 Strava 上传生效；行者、Intervals.icu 和 Outbase 始终上传原始 FIT 文件。
 
-*If your source track uses GCJ-02, or the uploaded route appears visibly offset in Strava, enable `上传前将 GCJ-02 转为 WGS84` in Settings. This option applies to both automatic OneLap sync and shared FIT uploads.*
+*If your source track uses GCJ-02, or the uploaded route appears visibly offset in Strava, enable `Strava 上传前将 GCJ-02 转为 WGS84` in Settings. This option applies to Strava uploads only; Xingzhe, Intervals.icu, and Outbase always receive the original FIT file.*
 
 ### 通过系统分享导入 FIT / Import FIT via System Share
 
@@ -109,9 +109,9 @@ Strava 上传支持 API 和网页两种模式：API 模式需要配置 Client ID
 
 *If Strava is not configured yet, the app will ask you to finish setup first. The current shared file is not queued, so you need to share it again after setup.*
 
-如果分享上传的 FIT 也需要做坐标修正，可以在设置中提前打开坐标转换开关；分享上传会使用同一套上传前转换逻辑。
+如果分享上传到 Strava 的 FIT 也需要做坐标修正，可以在设置中提前打开坐标转换开关；分享上传仅对 Strava 目标使用转换后的文件，其他平台使用原始文件。
 
-*If shared FIT uploads also need coordinate correction, enable the coordinate rewrite switch in Settings first; shared uploads use the same pre-upload conversion flow.*
+*If shared FIT uploads to Strava also need coordinate correction, enable the coordinate rewrite switch in Settings first; only the Strava target receives the rewritten file, other platforms receive the original file.*
 
 ### 顽鹿下载失败时的备用方式 / Fallback When OneLap Download Fails
 

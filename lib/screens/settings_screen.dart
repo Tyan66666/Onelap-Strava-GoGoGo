@@ -731,8 +731,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('上传前将 GCJ-02 转为 WGS84'),
-            subtitle: const Text('仅在来源轨迹偏移且确认使用 GCJ-02 时开启'),
+            title: const Text('Strava 上传前将 GCJ-02 转为 WGS84'),
+            subtitle: const Text(
+              '仅对 Strava 生效；行者、Intervals.icu、Outbase 上传原始文件',
+            ),
             value: _gcjCorrectionEnabled,
             onChanged: _saveGcjCorrectionEnabled,
           ),

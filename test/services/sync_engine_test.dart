@@ -135,8 +135,13 @@ class _FakeXingzheClient extends XingzheClient {
   _FakeXingzheClient()
     : super(username: 'xingzhe-user', password: 'xingzhe-pass');
 
+  File? uploadedFile;
+  int uploadCalls = 0;
+
   @override
   Future<int> uploadFit(File fitFile, {int retries = 3}) async {
+    uploadedFile = fitFile;
+    uploadCalls++;
     return 7;
   }
 
@@ -433,6 +438,49 @@ void main() {
       expect(stravaClient.uploadedFile?.path, rewrittenFile.path);
     });
 
+    test(
+      'Strava gets rewritten file while Xingzhe gets original when both are enabled',
+      () async {
+        final Directory tempDir = await Directory.systemTemp.createTemp(
+          'sync-engine-strava-xingzhe-rewrite-',
+        );
+        final File originalFile = File('${tempDir.path}/activity.fit');
+        final File rewrittenFile = File('${tempDir.path}/rewritten.fit');
+        await originalFile.writeAsBytes(<int>[1, 2, 3]);
+        await rewrittenFile.writeAsBytes(<int>[4, 5, 6]);
+
+        addTearDown(() async {
+          if (await tempDir.exists()) {
+            await tempDir.delete(recursive: true);
+          }
+        });
+
+        final _FakeStravaClient stravaClient = _FakeStravaClient();
+        final _FakeXingzheClient xingzheClient = _FakeXingzheClient();
+        final _FakeFitCoordinateRewriteService rewriteService =
+            _FakeFitCoordinateRewriteService(rewrittenFile: rewrittenFile);
+        final SyncEngine engine = SyncEngine(
+          oneLapClient: _FakeOneLapClient(
+            activities: <OneLapActivity>[_activity()],
+            downloadedFile: originalFile,
+          ),
+          stravaClient: stravaClient,
+          xingzheClient: xingzheClient,
+          stateStore: _FakeStateStore(),
+          gcjCorrectionEnabled: true,
+          rewriteService: rewriteService,
+          uploadToStrava: true,
+          uploadToXingzhe: true,
+        );
+
+        await engine.runOnce();
+
+        expect(rewriteService.receivedFile?.path, originalFile.path);
+        expect(stravaClient.uploadedFile?.path, rewrittenFile.path);
+        expect(xingzheClient.uploadedFile?.path, originalFile.path);
+      },
+    );
+
     test('cleans up the rewrite temp directory after upload attempt', () async {
       final Directory tempDir = await Directory.systemTemp.createTemp(
         'sync-engine-rewrite-cleanup-',
@@ -509,6 +557,46 @@ void main() {
       expect(summary.stravaFailures, hasLength(1));
       expect(summary.stravaFailures.single.error, '坐标转换失败');
       expect(stravaClient.uploadedFile, isNull);
+    });
+
+    test('Strava rewrite failure does not block Xingzhe upload', () async {
+      final Directory tempDir = await Directory.systemTemp.createTemp(
+        'sync-engine-strava-rewrite-xingzhe-',
+      );
+      final File originalFile = File('${tempDir.path}/activity.fit');
+      await originalFile.writeAsBytes(<int>[1, 2, 3]);
+
+      addTearDown(() async {
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      });
+
+      final _FakeStravaClient stravaClient = _FakeStravaClient();
+      final _FakeXingzheClient xingzheClient = _FakeXingzheClient();
+      final SyncEngine engine = SyncEngine(
+        oneLapClient: _FakeOneLapClient(
+          activities: <OneLapActivity>[_activity()],
+          downloadedFile: originalFile,
+        ),
+        stravaClient: stravaClient,
+        xingzheClient: xingzheClient,
+        stateStore: _FakeStateStore(),
+        gcjCorrectionEnabled: true,
+        rewriteService: _FakeFitCoordinateRewriteService(
+          error: Exception('bad coordinate'),
+        ),
+        uploadToStrava: true,
+        uploadToXingzhe: true,
+      );
+
+      final summary = await engine.runOnce();
+
+      expect(summary.stravaFailed, 1);
+      expect(summary.stravaFailures.single.error, '坐标转换失败');
+      expect(stravaClient.uploadedFile, isNull);
+      expect(xingzheClient.uploadedFile?.path, originalFile.path);
+      expect(xingzheClient.uploadCalls, 1);
     });
 
     test('tracks platform deduped counts separately from failures', () async {
@@ -990,40 +1078,47 @@ void main() {
       expect(intervalsIcu.uploadCalls, 2);
     });
 
-    test('Intervals.icu rewrite error produces 坐标转换失败 failure', () async {
-      final tempDir = await Directory.systemTemp.createTemp(
-        'sync-engine-intervals-rewrite-',
-      );
-      final file = File('${tempDir.path}/activity.fit');
-      await file.writeAsBytes(<int>[1, 2, 3]);
+    test(
+      'Intervals.icu uploads original file when GCJ rewrite is enabled but Strava is disabled',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'sync-engine-intervals-rewrite-',
+        );
+        final file = File('${tempDir.path}/activity.fit');
+        await file.writeAsBytes(<int>[1, 2, 3]);
 
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
+        addTearDown(() async {
+          if (await tempDir.exists()) await tempDir.delete(recursive: true);
+        });
 
-      final intervalsIcuClient = _FakeIntervalsIcuClient();
-
-      final engine = SyncEngine(
-        oneLapClient: _FakeOneLapClient(
-          activities: <OneLapActivity>[_activity()],
-          downloadedFile: file,
-        ),
-        stravaClient: _FakeStravaClient(),
-        intervalsIcuClient: intervalsIcuClient,
-        stateStore: _FakeStateStore(),
-        gcjCorrectionEnabled: true,
-        rewriteService: _FakeFitCoordinateRewriteService(
+        final intervalsIcuClient = _FakeIntervalsIcuClient();
+        final rewriteService = _FakeFitCoordinateRewriteService(
           error: Exception('bad coordinate'),
-        ),
-        uploadToIntervalsIcu: true,
-      );
+        );
 
-      final summary = await engine.runOnce();
+        final engine = SyncEngine(
+          oneLapClient: _FakeOneLapClient(
+            activities: <OneLapActivity>[_activity()],
+            downloadedFile: file,
+          ),
+          stravaClient: _FakeStravaClient(),
+          intervalsIcuClient: intervalsIcuClient,
+          stateStore: _FakeStateStore(),
+          gcjCorrectionEnabled: true,
+          rewriteService: rewriteService,
+          uploadToStrava: false,
+          uploadToIntervalsIcu: true,
+        );
 
-      expect(summary.intervalsIcuFailed, 1);
-      expect(summary.intervalsIcuSuccess, 0);
-      expect(intervalsIcuClient.uploadCalls, 0);
-    });
+        final summary = await engine.runOnce();
+
+        expect(summary.intervalsIcuFailed, 0);
+        expect(summary.intervalsIcuSuccess, 1);
+        expect(intervalsIcuClient.uploadCalls, 1);
+        expect(intervalsIcuClient.uploadedFile?.path, file.path);
+        expect(rewriteService.receivedFile, isNull);
+      },
+    );
 
     test('Intervals.icu idempotent success from duplicate error', () async {
       final tempDir = await Directory.systemTemp.createTemp(

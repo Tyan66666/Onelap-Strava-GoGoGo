@@ -106,54 +106,69 @@ class SharedFitUploadService {
 
     File uploadFile = file;
     bool shouldDeleteUploadFile = false;
-    if (_isGcjCorrectionEnabled(settings)) {
-      final FitCoordinateRewriteService rewriteService =
-          _rewriteService ?? FitCoordinateRewriteService();
-      try {
-        uploadFile = await rewriteService.rewrite(
-          file,
-          options: RewriteOptions(
-            startTime: sessionMeta.startTime,
-            sourceFilename: draft.displayName,
-          ),
-        );
-        shouldDeleteUploadFile = uploadFile.path != file.path;
-      } on Exception catch (error) {
-        return SharedFitUploadResult(
-          status: SharedFitUploadStatus.failure,
-          message:
-              'FIT coordinate rewrite failed: ${'$error'.replaceFirst('Exception: ', '')}',
-        );
-      }
-    }
+    final Map<FitUploadPlatform, File> fileOverrides = {};
+    final bool rewriteForStrava =
+        _isGcjCorrectionEnabled(settings) &&
+        plan.targets.contains(FitUploadPlatform.strava);
 
     try {
+      if (rewriteForStrava) {
+        final FitCoordinateRewriteService rewriteService =
+            _rewriteService ?? FitCoordinateRewriteService();
+        try {
+          uploadFile = await rewriteService.rewrite(
+            file,
+            options: RewriteOptions(
+              startTime: sessionMeta.startTime,
+              sourceFilename: draft.displayName,
+            ),
+          );
+          shouldDeleteUploadFile = uploadFile.path != file.path;
+          fileOverrides[FitUploadPlatform.strava] = uploadFile;
+        } on Exception catch (error) {
+          final String message =
+              'FIT coordinate rewrite failed: ${'$error'.replaceFirst('Exception: ', '')}';
+          final bool hasOtherTargets = plan.targets.any(
+            (FitUploadPlatform platform) =>
+                platform != FitUploadPlatform.strava,
+          );
+          if (!hasOtherTargets) {
+            return SharedFitUploadResult(
+              status: SharedFitUploadStatus.failure,
+              message: message,
+            );
+          }
+
+          // Strava 转换失败时，其他平台继续用原始文件上传。
+          final Map<String, String> otherSettings = Map<String, String>.from(
+            settings,
+          );
+          otherSettings[SettingsService.keyUploadToStrava] = 'false';
+          final FitUploadCoordinatorResult otherResult = await _coordinator
+              .uploadFile(file, otherSettings);
+          final FitUploadCoordinatorResult mergedResult = _mergeRewriteFailure(
+            stravaFailureMessage: message,
+            otherResult: otherResult,
+          );
+          return await _completeUpload(
+            coordinatorResult: mergedResult,
+            draft: draft,
+            file: file,
+            plan: plan,
+            sessionMeta: sessionMeta,
+          );
+        }
+      }
+
       final FitUploadCoordinatorResult coordinatorResult = await _coordinator
-          .uploadFile(uploadFile, settings);
-      final SharedFitUploadResult result = _mapCoordinatorResult(
-        coordinatorResult,
+          .uploadFile(file, settings, fileOverrides: fileOverrides);
+      return await _completeUpload(
+        coordinatorResult: coordinatorResult,
+        draft: draft,
+        file: file,
+        plan: plan,
+        sessionMeta: sessionMeta,
       );
-      try {
-        await _persistSyncHistoryIfNeeded(
-          draft: draft,
-          file: file,
-          plan: plan,
-          coordinatorResult: coordinatorResult,
-          sessionMeta: sessionMeta,
-        );
-      } on Exception {
-        // History persistence is best-effort after upload completes.
-      }
-      try {
-        await _persistDedupeStateIfNeeded(
-          coordinatorResult: coordinatorResult,
-          fingerprint: await _resolveDedupeFingerprint(file, sessionMeta),
-          sessionMeta: sessionMeta,
-        );
-      } on Exception {
-        // Dedupe persistence is best-effort after upload completes.
-      }
-      return result;
     } on Exception catch (error) {
       return SharedFitUploadResult(
         status: SharedFitUploadStatus.failure,
@@ -164,6 +179,78 @@ class SharedFitUploadService {
         await _deleteTempUploadFile(uploadFile);
       }
     }
+  }
+
+  Future<SharedFitUploadResult> _completeUpload({
+    required FitUploadCoordinatorResult coordinatorResult,
+    required SharedFitDraft draft,
+    required File file,
+    required FitUploadPlan plan,
+    required FitSessionMeta sessionMeta,
+  }) async {
+    final SharedFitUploadResult result = _mapCoordinatorResult(
+      coordinatorResult,
+    );
+    try {
+      await _persistSyncHistoryIfNeeded(
+        draft: draft,
+        file: file,
+        plan: plan,
+        coordinatorResult: coordinatorResult,
+        sessionMeta: sessionMeta,
+      );
+    } on Exception {
+      // History persistence is best-effort after upload completes.
+    }
+    try {
+      await _persistDedupeStateIfNeeded(
+        coordinatorResult: coordinatorResult,
+        fingerprint: await _resolveDedupeFingerprint(file, sessionMeta),
+        sessionMeta: sessionMeta,
+      );
+    } on Exception {
+      // Dedupe persistence is best-effort after upload completes.
+    }
+    return result;
+  }
+
+  FitUploadCoordinatorResult _mergeRewriteFailure({
+    required String stravaFailureMessage,
+    required FitUploadCoordinatorResult otherResult,
+  }) {
+    final List<FitUploadPlatformResult> mergedResults =
+        <FitUploadPlatformResult>[
+          FitUploadPlatformResult(
+            platform: FitUploadPlatform.strava,
+            status: FitUploadPlatformStatus.failure,
+            message: stravaFailureMessage,
+          ),
+          ...otherResult.platformResults,
+        ];
+
+    final bool hasSuccess = mergedResults.any(
+      (FitUploadPlatformResult result) =>
+          result.status == FitUploadPlatformStatus.success ||
+          result.status == FitUploadPlatformStatus.alreadyUploaded,
+    );
+    final bool hasFailure = mergedResults.any(
+      (FitUploadPlatformResult result) =>
+          result.status == FitUploadPlatformStatus.failure,
+    );
+
+    final FitUploadCoordinatorStatus status;
+    if (!hasSuccess) {
+      status = FitUploadCoordinatorStatus.failure;
+    } else if (hasFailure) {
+      status = FitUploadCoordinatorStatus.partialSuccess;
+    } else {
+      status = FitUploadCoordinatorStatus.success;
+    }
+
+    return FitUploadCoordinatorResult(
+      status: status,
+      platformResults: mergedResults,
+    );
   }
 
   bool _hasFitExtension(SharedFitDraft draft) {

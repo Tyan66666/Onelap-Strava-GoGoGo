@@ -143,8 +143,9 @@ class FitUploadCoordinator {
 
   Future<FitUploadCoordinatorResult> uploadFile(
     File file,
-    Map<String, String> settings,
-  ) async {
+    Map<String, String> settings, {
+    Map<FitUploadPlatform, File> fileOverrides = const {},
+  }) async {
     final FitUploadPlan plan = resolveUploadPlan(settings);
     if (plan.hasMissingConfiguration) {
       return FitUploadCoordinatorResult(
@@ -157,7 +158,10 @@ class FitUploadCoordinator {
         <FitUploadPlatformResult>[];
 
     for (final FitUploadPlatform platform in plan.targets) {
-      platformResults.add(await _uploadToPlatform(platform, file, settings));
+      final File targetFile = fileOverrides[platform] ?? file;
+      platformResults.add(
+        await _uploadToPlatform(platform, targetFile, settings),
+      );
     }
 
     return FitUploadCoordinatorResult(

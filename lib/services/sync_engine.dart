@@ -468,25 +468,9 @@ class SyncEngine {
         }
       }
 
-      // ---- 5. 坐标转换 ----
-      File uploadFile = fitFile;
-      bool rewriteFailed = false;
-      String? rewriteError;
-      if (gcjCorrectionEnabled) {
-        try {
-          final svc = rewriteService ?? FitCoordinateRewriteService();
-          uploadFile = await svc.rewrite(
-            fitFile,
-            options: RewriteOptions(
-              startTime: item.startTime,
-              sourceFilename: item.sourceFilename,
-            ),
-          );
-        } catch (e) {
-          rewriteFailed = true;
-          rewriteError = '$e';
-        }
-      }
+      // ---- 5. 上传文件准备 ----
+      // 坐标转换只在 Strava 上传内部执行；其他平台始终使用原始文件。
+      final File uploadFile = fitFile;
 
       final List<PlatformSyncResult> platformResults = [];
       int platformsUploaded = 0;
@@ -510,8 +494,6 @@ class SyncEngine {
             startTime: item.startTime,
             sessionMeta: sessionMeta,
             uploadFile: uploadFile,
-            rewriteFailed: rewriteFailed,
-            rewriteError: rewriteError,
             now: now,
           ).then((r) => stravaResults.add(r)),
         );
@@ -525,8 +507,6 @@ class SyncEngine {
             startTime: item.startTime,
             sessionMeta: sessionMeta,
             uploadFile: uploadFile,
-            rewriteFailed: rewriteFailed,
-            rewriteError: rewriteError,
             now: now,
           ).then((r) => xingzheResults.add(r)),
         );
@@ -542,8 +522,6 @@ class SyncEngine {
             startTime: item.startTime,
             sessionMeta: sessionMeta,
             uploadFile: uploadFile,
-            rewriteFailed: rewriteFailed,
-            rewriteError: rewriteError,
             now: now,
           ).then((r) => intervalsIcuResults.add(r)),
         );
@@ -559,8 +537,6 @@ class SyncEngine {
             startTime: item.startTime,
             sessionMeta: sessionMeta,
             uploadFile: uploadFile,
-            rewriteFailed: rewriteFailed,
-            rewriteError: rewriteError,
             now: now,
           ).then((r) => outbaseResults.add(r)),
         );
@@ -673,16 +649,6 @@ class SyncEngine {
           platformResults: platformResults,
         ),
       );
-
-      // Cleanup rewritten temp file
-      if (uploadFile.path != fitFile.path) {
-        try {
-          await uploadFile.delete();
-        } catch (_) {}
-        try {
-          await uploadFile.parent.delete();
-        } catch (_) {}
-      }
     }
 
     if (syncRecords.isNotEmpty) {
@@ -829,8 +795,6 @@ class SyncEngine {
     required String startTime,
     required FitSessionMeta sessionMeta,
     required File uploadFile,
-    required bool rewriteFailed,
-    required String? rewriteError,
     required String now,
   }) async {
     final platformResults = <PlatformSyncResult>[];
@@ -872,9 +836,49 @@ class SyncEngine {
         ),
       );
       sDeduped++;
-    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+    } else {
+      File effectiveUploadFile = uploadFile;
+      File? rewrittenFile;
+
+      if (gcjCorrectionEnabled) {
+        try {
+          final FitCoordinateRewriteService svc =
+              rewriteService ?? FitCoordinateRewriteService();
+          rewrittenFile = await svc.rewrite(
+            uploadFile,
+            options: RewriteOptions(
+              startTime: startTime,
+              sourceFilename: sourceFilename,
+            ),
+          );
+          effectiveUploadFile = rewrittenFile;
+        } catch (e) {
+          platformResults.add(
+            PlatformSyncResult(
+              platform: SyncPlatform.strava,
+              status: SyncStatus.failed,
+              errorMessage: '坐标转换失败: $e',
+              syncedAt: now,
+            ),
+          );
+          failed++;
+          sFailures.add(
+            _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
+          );
+          return _PlatformUploadResult(
+            platformResults: platformResults,
+            uploaded: uploaded,
+            failed: failed,
+            success: sSuccess,
+            deduped: sDeduped,
+            failures: sFailures,
+            failureReasons: sFailureReasons,
+          );
+        }
+      }
+
       try {
-        final uploadId = await stravaClient!.uploadFit(uploadFile);
+        final uploadId = await stravaClient!.uploadFit(effectiveUploadFile);
         final result = await stravaClient!.pollUpload(uploadId);
         final activityId = result['activity_id'];
         final error = result['error'];
@@ -950,20 +954,16 @@ class SyncEngine {
           );
           sFailureReasons.add('Strava 上传失败 ($sourceFilename): $e');
         }
+      } finally {
+        if (rewrittenFile != null && rewrittenFile.path != uploadFile.path) {
+          try {
+            await rewrittenFile.delete();
+          } catch (_) {}
+          try {
+            await rewrittenFile.parent.delete();
+          } catch (_) {}
+        }
       }
-    } else {
-      platformResults.add(
-        PlatformSyncResult(
-          platform: SyncPlatform.strava,
-          status: SyncStatus.failed,
-          errorMessage: '坐标转换失败: $rewriteError',
-          syncedAt: now,
-        ),
-      );
-      failed++;
-      sFailures.add(
-        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
-      );
     }
 
     return _PlatformUploadResult(
@@ -983,8 +983,6 @@ class SyncEngine {
     required String startTime,
     required FitSessionMeta sessionMeta,
     required File uploadFile,
-    required bool rewriteFailed,
-    required String? rewriteError,
     required String now,
   }) async {
     final platformResults = <PlatformSyncResult>[];
@@ -1003,7 +1001,7 @@ class SyncEngine {
         ),
       );
       xDeduped++;
-    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+    } else {
       try {
         final uploadId = await xingzheClient!.uploadFit(uploadFile);
         final result = await xingzheClient!.pollUpload(uploadId);
@@ -1084,19 +1082,6 @@ class SyncEngine {
           xFailureReasons.add('行者 上传失败 ($sourceFilename): $e');
         }
       }
-    } else {
-      platformResults.add(
-        PlatformSyncResult(
-          platform: SyncPlatform.xingzhe,
-          status: SyncStatus.failed,
-          errorMessage: '坐标转换失败: $rewriteError',
-          syncedAt: now,
-        ),
-      );
-      failed++;
-      xFailures.add(
-        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
-      );
     }
 
     return _PlatformUploadResult(
@@ -1116,8 +1101,6 @@ class SyncEngine {
     required String startTime,
     required FitSessionMeta sessionMeta,
     required File uploadFile,
-    required bool rewriteFailed,
-    required String? rewriteError,
     required String now,
   }) async {
     final platformResults = <PlatformSyncResult>[];
@@ -1139,7 +1122,7 @@ class SyncEngine {
         ),
       );
       iDeduped++;
-    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+    } else {
       try {
         final activityId = await intervalsIcuClient!.uploadFit(uploadFile);
         await stateStore.markPlatformSynced(
@@ -1189,19 +1172,6 @@ class SyncEngine {
           iFailureReasons.add('Intervals.icu 上传失败 ($sourceFilename): $e');
         }
       }
-    } else {
-      platformResults.add(
-        PlatformSyncResult(
-          platform: SyncPlatform.intervalsIcu,
-          status: SyncStatus.failed,
-          errorMessage: '坐标转换失败: $rewriteError',
-          syncedAt: now,
-        ),
-      );
-      failed++;
-      iFailures.add(
-        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
-      );
     }
 
     return _PlatformUploadResult(
@@ -1221,8 +1191,6 @@ class SyncEngine {
     required String startTime,
     required FitSessionMeta sessionMeta,
     required File uploadFile,
-    required bool rewriteFailed,
-    required String? rewriteError,
     required String now,
   }) async {
     final platformResults = <PlatformSyncResult>[];
@@ -1241,7 +1209,7 @@ class SyncEngine {
         ),
       );
       oDeduped++;
-    } else if (!gcjCorrectionEnabled || !rewriteFailed) {
+    } else {
       try {
         final result = await outbaseClient!.uploadFit(uploadFile);
         if (result.success) {
@@ -1300,19 +1268,6 @@ class SyncEngine {
         oFailures.add(_failSummary(fingerprint, startTime, sessionMeta, '$e'));
         oFailureReasons.add('Outbase 上传失败 ($sourceFilename): $e');
       }
-    } else {
-      platformResults.add(
-        PlatformSyncResult(
-          platform: SyncPlatform.outbase,
-          status: SyncStatus.failed,
-          errorMessage: '坐标转换失败: $rewriteError',
-          syncedAt: now,
-        ),
-      );
-      failed++;
-      oFailures.add(
-        _failSummary(fingerprint, startTime, sessionMeta, '坐标转换失败'),
-      );
     }
 
     return _PlatformUploadResult(
