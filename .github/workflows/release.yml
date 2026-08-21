@@ -1,4 +1,4 @@
-name: Android Release
+name: Release
 
 on:
   workflow_dispatch:
@@ -12,10 +12,13 @@ on:
       - "v*"
 
 jobs:
-  build:
-    permissions:
-      contents: read
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      checkout_ref: ${{ steps.resolve_ref.outputs.checkout_ref }}
+      derived_versioning_active: ${{ steps.resolve_ref.outputs.derived_versioning_active }}
+      build_name: ${{ steps.resolve_ref.outputs.build_name }}
+      build_number: ${{ steps.resolve_ref.outputs.build_number }}
     steps:
       - name: Resolve build ref and release versioning
         id: resolve_ref
@@ -98,9 +101,15 @@ jobs:
             echo "build_number=$build_number"
           } >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: resolve
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.resolve_ref.outputs.checkout_ref }}
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
 
       - uses: subosito/flutter-action@v2
         with:
@@ -150,9 +159,9 @@ jobs:
       - name: Build release APK
         shell: bash
         env:
-          DERIVED_VERSIONING_ACTIVE: ${{ steps.resolve_ref.outputs.derived_versioning_active }}
-          BUILD_NAME: ${{ steps.resolve_ref.outputs.build_name }}
-          BUILD_NUMBER: ${{ steps.resolve_ref.outputs.build_number }}
+          DERIVED_VERSIONING_ACTIVE: ${{ needs.resolve.outputs.derived_versioning_active }}
+          BUILD_NAME: ${{ needs.resolve.outputs.build_name }}
+          BUILD_NUMBER: ${{ needs.resolve.outputs.build_number }}
         run: |
           if [[ "$DERIVED_VERSIONING_ACTIVE" == "true" ]]; then
             flutter build apk --release --dart-define=FLUTTER_IMPELLER_ENABLED=false --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
@@ -167,9 +176,57 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 7
 
+  build-ios:
+    needs: resolve
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.checkout_ref }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.5
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS app
+        shell: bash
+        env:
+          DERIVED_VERSIONING_ACTIVE: ${{ needs.resolve.outputs.derived_versioning_active }}
+          BUILD_NAME: ${{ needs.resolve.outputs.build_name }}
+          BUILD_NUMBER: ${{ needs.resolve.outputs.build_number }}
+        run: |
+          if [[ "$DERIVED_VERSIONING_ACTIVE" == "true" ]]; then
+            flutter build ios --release --no-codesign --dart-define=FLUTTER_IMPELLER_ENABLED=false --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+          else
+            flutter build ios --release --no-codesign --dart-define=FLUTTER_IMPELLER_ENABLED=false
+          fi
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p Payload
+          mv build/ios/iphoneos/Runner.app Payload/
+          zip -r app.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-release-ipa
+          path: app.ipa
+          retention-days: 7
+
   publish:
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
-    needs: build
+    needs: [build, build-ios]
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -182,7 +239,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: android-release-apk
-          path: release-artifact
+          path: release-artifacts/apk
+
+      - name: Download IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-release-ipa
+          path: release-artifacts/ipa
 
       - name: Prepare release files
         shell: bash
@@ -191,21 +254,14 @@ jobs:
 
           mkdir -p release
 
-          artifact_path="release-artifact/app-release.apk"
-          if [[ ! -f "$artifact_path" ]]; then
-            downloaded_files=(release-artifact/*)
-            if [[ ${#downloaded_files[@]} -ne 1 || ! -f "${downloaded_files[0]}" ]]; then
-              echo "Expected exactly one downloaded APK artifact" >&2
-              exit 1
-            fi
-            artifact_path="${downloaded_files[0]}"
-          fi
-
-          cp "$artifact_path" "release/app-release.apk"
+          cp release-artifacts/apk/app-release.apk release/app-release.apk
+          cp release-artifacts/ipa/app.ipa release/app.ipa
 
           cat <<'EOF' > release/release-notes.md
           ## 更新内容
           - 请补充本次版本说明
+          - Android: app-release.apk
+          - iOS: app.ipa（未签名，需用 AltStore / Sideloadly / 爱思助手 等工具自签安装）
           EOF
 
       - name: Create or update GitHub release
@@ -216,7 +272,7 @@ jobs:
           set -euo pipefail
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release/app-release.apk --clobber
+            gh release upload "$TAG_NAME" release/app-release.apk release/app.ipa --clobber
           else
-            gh release create "$TAG_NAME" release/app-release.apk --title "$TAG_NAME" --notes-file release/release-notes.md
+            gh release create "$TAG_NAME" release/app-release.apk release/app.ipa --title "$TAG_NAME" --notes-file release/release-notes.md
           fi
